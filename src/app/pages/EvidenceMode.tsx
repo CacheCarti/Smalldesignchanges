@@ -70,6 +70,9 @@ export function EvidenceMode() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   
+  const [sessionResults, setSessionResults] = useState<any[]>([]);
+  const [testResultIdx, setTestResultIdx] = useState(0);
+  
   const [testStage, setTestStage] = useState<'intro' | 'fight' | 'winner' | 'annotate'>('intro');
   
   const [sweepDrag, setSweepDrag] = useState<{ x:number; y:number; w:number; h:number } | null>(null);
@@ -178,7 +181,13 @@ export function EvidenceMode() {
   };
 
   const nextImage = () => {
-    if (imageIdx >= NUM_IMAGES - 1) { setPhase('dispatch'); return; }
+    // Save current result
+    setSessionResults(prev => [...prev, { imageIdx, annotations, selectedCountry, notes }]);
+    
+    if (imageIdx >= NUM_IMAGES - 1) { 
+      setPhase('dispatch'); 
+      return; 
+    }
     setImageIdx(imageIdx + 1);
     setQIdx(0);
     setAnnotations([]);
@@ -186,54 +195,130 @@ export function EvidenceMode() {
     setSelectedCountry(null);
   };
 
+  const handleNextAssignment = () => {
+    if (testResultIdx < sessionResults.length - 1) {
+      setTestResultIdx(testResultIdx + 1);
+      setTestStage('intro');
+      setTimeout(() => setTestStage('fight'), 1000);
+    } else {
+      nav('/hub');
+    }
+  };
+
   const arch = ARCHITECTURE_COLORS[activePokemon.architecture] || ARCHITECTURE_COLORS.CNN;
 
-  // Background Decor & Strings matching Home.tsx (Prominent, no spotlight)
+  // Derive data for the test phase
+  const currentTestResult = sessionResults[testResultIdx] || { imageIdx, annotations, selectedCountry, notes };
+  const testReveal = TEST_REVEAL_IMAGES[currentTestResult.imageIdx % TEST_REVEAL_IMAGES.length];
+  const testSelectedCountry = currentTestResult.selectedCountry;
+  const testNotes = currentTestResult.notes;
+
+  // Background Decor & Strings matching Home.tsx (Prominent, dense, no spotlight)
   const renderDenseBackground = () => (
     <>
       <div style={{ position:'absolute', inset:0, opacity:0.95, backgroundImage:`radial-gradient(rgba(0,0,0,0.3) 1px, transparent 1px), radial-gradient(rgba(0,0,0,0.2) 1px, transparent 1px)`, backgroundSize: '24px 24px', backgroundPosition: '0 0, 12px 12px', pointerEvents:'none' }} />
-      <div style={{ position:'absolute', inset:0, boxShadow:'inset 0 0 100px rgba(0,0,0,0.6)', pointerEvents:'none' }} />
+      <div style={{ position:'absolute', inset:0, boxShadow:'inset 0 0 120px rgba(0,0,0,0.7)', pointerEvents:'none' }} />
       
-      {/* Background Decor Props - spread out to frame the main center board */}
-      <div style={{ position:'absolute', top:'8%', left:'18%', transform:'rotate(-12deg)', background:'#e0dcd3', padding:12, width:140, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:7, color:'#222', clipPath:'polygon(0% 0%, 100% 0%, 98% 10%, 100% 20%, 97% 30%, 100% 40%, 98% 50%, 100% 60%, 97% 70%, 100% 80%, 98% 90%, 100% 100%, 0% 100%, 2% 90%, 0% 80%, 3% 70%, 0% 60%, 2% 50%, 0% 40%, 3% 30%, 0% 20%, 2% 10%)', filter:'sepia(0.2) contrast(1.05)' }}>
-        <RealisticPin color={PIN_BLUE} />
-        <strong style={{fontSize:11, borderBottom:'2px solid #333', display:'block', marginBottom:4, fontFamily:'Times New Roman, serif'}}>LOCAL HEIST</strong>
-        <div style={{fontFamily:'Times New Roman, serif', lineHeight:1.4}}>Authorities remain baffled after the sudden disappearance of the artifact from the museum vault...</div>
-      </div>
-      
-      <div style={{ position:'absolute', top:'10%', right:'18%', transform:'rotate(8deg)', background:POLA, padding:'6px 6px 20px 6px', width:100, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', filter:'sepia(0.3) contrast(1.1)' }}>
-        <RealisticPin color={PIN_RED} />
-        <div style={{ background:'#1a1a1a', height:80, display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontSize:32, fontWeight:'bold' }}>?</div>
-        <div style={{ textAlign:'center', marginTop:5, fontSize:9, color:'#8b0000', fontWeight:'bold' }}>SUSPECT</div>
+      {/* BACKGROUND LAYER 0: MAPS & DOCUMENTS */}
+      <div style={{ position:'absolute', top:'-5%', left:'2%', transform:'rotate(-4deg)', opacity:0.5, width:400, height:300, zIndex:0, pointerEvents:'none' }}>
+         <img src="https://images.unsplash.com/photo-1524661135-423995f22d0b?w=600&q=80" style={{width:'100%', height:'100%', objectFit:'cover', filter:'sepia(1) contrast(1.2) brightness(0.6)'}} />
+         <Tape style={{top:-10, left:'20%'}} /><Tape style={{bottom:-10, right:'20%'}} />
       </div>
 
-      <div style={{ position:'absolute', bottom:'32%', left:'14%', transform:'rotate(-8deg)', background:STICKY_Y, padding:10, width:110, height:110, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:12, fontWeight:'bold', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 1 }}>
+      <div style={{ position:'absolute', top:'20%', right:'2%', transform:'rotate(6deg)', opacity:0.4, width:300, height:400, zIndex:0, background:'#e0dcd3', padding:20, fontFamily:FONT, fontSize:10, pointerEvents:'none', border:'1px solid #999' }}>
+         <h2 style={{borderBottom:'2px solid #333', marginBottom:10, fontSize:16, fontWeight:900}}>CASE SUMMARY 44-B</h2>
+         <div style={{lineHeight:1.6}}>Subject remains at large. <span style={{background:'#000', color:'#000'}}>REDACTED</span>. Last seen near <span style={{background:'#000', color:'#000'}}>SECTOR 7</span>. Multiple anomalies detected in the <span style={{background:'#000', color:'#000'}}>██████</span> sequence. Do not engage without backup.</div>
+         <Tape style={{top:-10, left:'50%'}} />
+      </div>
+
+      {/* LAYER 1: POLAROIDS & NEWSPAPERS */}
+      <div style={{ position:'absolute', top:'10%', left:'20%', transform:'rotate(-12deg)', background:'#e0dcd3', padding:12, width:150, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:8, color:'#222', clipPath:'polygon(0% 0%, 100% 0%, 98% 10%, 100% 20%, 97% 30%, 100% 40%, 98% 50%, 100% 60%, 97% 70%, 100% 80%, 98% 90%, 100% 100%, 0% 100%, 2% 90%, 0% 80%, 3% 70%, 0% 60%, 2% 50%, 0% 40%, 3% 30%, 0% 20%, 2% 10%)', filter:'sepia(0.2) contrast(1.05)', zIndex:1, pointerEvents:'none' }}>
+        <RealisticPin color={PIN_BLUE} />
+        <strong style={{fontSize:12, borderBottom:'2px solid #333', display:'block', marginBottom:4, fontFamily:'Times New Roman, serif'}}>LOCAL HEIST</strong>
+        <div style={{fontFamily:'Times New Roman, serif', lineHeight:1.4}}>Authorities remain baffled after the sudden disappearance of the artifact from the museum vault. Security cameras were mysteriously disabled.</div>
+      </div>
+      
+      <div style={{ position:'absolute', top:'5%', right:'32%', transform:'rotate(8deg)', background:POLA, padding:'8px 8px 24px 8px', width:110, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', filter:'sepia(0.3) contrast(1.1)', zIndex:1, pointerEvents:'none' }}>
+        <RealisticPin color={PIN_RED} />
+        <div style={{ background:'#1a1a1a', height:90, display:'flex', alignItems:'center', justifyContent:'center', color:'#888', fontSize:40, fontWeight:'bold' }}>?</div>
+        <div style={{ textAlign:'center', marginTop:6, fontSize:10, color:'#8b0000', fontWeight:'bold' }}>SUSPECT</div>
+      </div>
+
+      <div style={{ position:'absolute', bottom:'22%', left:'6%', transform:'rotate(-16deg)', background:POLA, padding:'8px 8px 24px 8px', width:130, boxShadow:'2px 4px 12px rgba(0,0,0,0.5)', filter:'sepia(0.4) contrast(1.2)', zIndex:1, pointerEvents:'none' }}>
+        <Tape style={{top:-12, left:'40%'}}/>
+        <img src="https://images.unsplash.com/photo-1476842634003-7dcca8f832de?w=400&q=80" style={{ width:'100%', height:110, objectFit:'cover' }} />
+        <div style={{ textAlign:'center', marginTop:6, fontSize:10, color:'#222', fontWeight:'bold', fontFamily:FONT }}>SCENE A</div>
+      </div>
+
+      <div style={{ position:'absolute', top:'3%', left:'45%', transform:'rotate(14deg)', background:POLA, padding:'6px 6px 20px 6px', width:120, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', filter:'sepia(0.5) contrast(1.3) brightness(0.8)', zIndex:1, pointerEvents:'none' }}>
+        <RealisticPin color={PIN_GOLD} />
+        <img src="https://images.unsplash.com/photo-1505322022379-7c3353ee6291?w=400&q=80" style={{ width:'100%', height:100, objectFit:'cover' }} />
+        <div style={{ textAlign:'center', marginTop:5, fontSize:9, color:'#222', fontWeight:'bold', fontFamily:FONT }}>11:42 PM</div>
+      </div>
+
+      {/* LAYER 2: STICKY NOTES & TORN SCRAPS */}
+      <div style={{ position:'absolute', bottom:'38%', left:'22%', transform:'rotate(-8deg)', background:STICKY_Y, padding:10, width:110, height:110, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:14, fontWeight:'bold', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 2, pointerEvents:'none' }}>
         <RealisticPin color={PIN_GREEN} />
         CHECK ACCOUNTS
       </div>
 
-      <div style={{ position:'absolute', bottom:'28%', right:'15%', transform:'rotate(12deg)', background:STICKY_B, padding:10, width:110, height:110, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:12, fontWeight:'bold', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 1 }}>
+      <div style={{ position:'absolute', bottom:'25%', right:'10%', transform:'rotate(12deg)', background:STICKY_B, padding:10, width:120, height:120, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:14, fontWeight:'bold', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 2, pointerEvents:'none' }}>
         <RealisticPin color={PIN_GOLD} />
         MISSING AT 22:00
       </div>
 
-      <div style={{ position:'absolute', top:'45%', left:'8%', transform:'rotate(4deg)', background:'#f5f5f0', padding:'6px 12px', fontSize:16, fontFamily:'"Courier New", monospace', color:'#8b0000', fontWeight:'bold', boxShadow:'1px 2px 4px rgba(0,0,0,0.3)', clipPath:'polygon(0% 10%, 100% 0%, 90% 100%, 5% 90%)', textTransform:'uppercase', letterSpacing:2 }}>
+      <div style={{ position:'absolute', top:'15%', right:'12%', transform:'rotate(-6deg)', background:STICKY_P, padding:10, width:100, height:100, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:15, fontWeight:'bold', color:'#8b0000', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 2, pointerEvents:'none' }}>
+        <RealisticPin color={PIN_RED} />
+        WHO IS HE?
+      </div>
+
+      <div style={{ position:'absolute', bottom:'48%', right:'22%', transform:'rotate(22deg)', background:STICKY_Y, padding:10, width:90, height:90, boxShadow:'2px 4px 10px rgba(0,0,0,0.4)', fontSize:12, fontWeight:'bold', color:'#111', display:'flex', alignItems:'center', justifyContent:'center', textAlign:'center', zIndex: 2, pointerEvents:'none' }}>
+        <Tape style={{top:-8, left:'20%'}}/>
+        NO ALIBI
+      </div>
+
+      <div style={{ position:'absolute', top:'60%', left:'3%', transform:'rotate(4deg)', background:'#f5f5f0', padding:'8px 16px', fontSize:22, fontFamily:'"Courier New", monospace', color:'#8b0000', fontWeight:'bold', boxShadow:'1px 2px 4px rgba(0,0,0,0.3)', clipPath:'polygon(0% 10%, 100% 0%, 90% 100%, 5% 90%)', textTransform:'uppercase', letterSpacing:2, zIndex:2, pointerEvents:'none' }}>
         <Tape />
         LIE.
       </div>
 
-      {/* Chaotic Red Strings */}
+      <div style={{ position:'absolute', top:'40%', right:'4%', transform:'rotate(-14deg)', background:'#f5f5f0', padding:'6px 12px', fontSize:16, fontFamily:'"Courier New", monospace', color:'#111', fontWeight:'bold', boxShadow:'1px 2px 4px rgba(0,0,0,0.3)', clipPath:'polygon(5% 0%, 100% 5%, 95% 100%, 0% 90%)', textTransform:'uppercase', letterSpacing:1, zIndex:2, pointerEvents:'none' }}>
+        <RealisticPin color={PIN_BLUE} />
+        55-291-0
+      </div>
+
+      {/* LAYER 3: THE CHAOTIC WEB OF RED STRINGS */}
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none', zIndex:8 }}>
         <filter id="string-shadow"><feDropShadow dx="1" dy="3" stdDeviation="2" floodOpacity="0.6"/></filter>
         {[
-          {s:{x:22,y:14}, e:{x:50,y:50}}, {s:{x:78,y:14}, e:{x:50,y:50}}, {s:{x:18,y:65}, e:{x:50,y:50}}, {s:{x:82,y:70}, e:{x:50,y:50}},
-          {s:{x:22,y:14}, e:{x:78,y:14}}, {s:{x:18,y:65}, e:{x:12,y:45}}
-        ].map((line, i) => (
-          <React.Fragment key={i}>
-            <path d={`M ${line.s.x} ${line.s.y} Q ${(line.s.x+line.e.x)/2} ${(line.s.y+line.e.y)/2+8} ${line.e.x} ${line.e.y}`} fill="none" stroke="#400" strokeWidth="0.35" />
-            <path d={`M ${line.s.x} ${line.s.y} Q ${(line.s.x+line.e.x)/2} ${(line.s.y+line.e.y)/2+8} ${line.e.x} ${line.e.y}`} fill="none" stroke={RED} strokeWidth="0.2" filter="url(#string-shadow)" />
-          </React.Fragment>
-        ))}
+          // Coords approximate percentages of pins/tape
+          {s:{x:25,y:15}, e:{x:68,y:10}}, // Heist to Suspect
+          {s:{x:68,y:10}, e:{x:88,y:20}}, // Suspect to Who is he
+          {s:{x:88,y:20}, e:{x:78,y:52}}, // Who is he to NO ALIBI
+          {s:{x:78,y:52}, e:{x:90,y:75}}, // NO ALIBI to Missing
+          {s:{x:90,y:75}, e:{x:50,y:50}}, // Missing to Center (Main Image)
+          {s:{x:12,y:78}, e:{x:27,y:62}}, // Scene A to Accounts
+          {s:{x:27,y:62}, e:{x:8,y:60}},  // Accounts to LIE
+          {s:{x:8,y:60},  e:{x:25,y:15}}, // LIE to Heist
+          {s:{x:25,y:15}, e:{x:50,y:8}},  // Heist to Night Building
+          {s:{x:50,y:8},  e:{x:96,y:40}}, // Night building to 55-291-0
+          {s:{x:96,y:40}, e:{x:50,y:50}}, // 55-291-0 to Center
+          {s:{x:12,y:78}, e:{x:90,y:75}}, // Bottom long cross: Scene A to Missing
+          {s:{x:27,y:62}, e:{x:50,y:8}},  // Accounts to Night Building
+          {s:{x:8,y:60},  e:{x:78,y:52}}, // LIE to NO ALIBI
+          {s:{x:25,y:15}, e:{x:50,y:50}}, // Heist to center
+          {s:{x:68,y:10}, e:{x:50,y:50}}, // Suspect to center
+        ].map((line, i) => {
+          // Add gravity sag to strings based on distance
+          const dist = Math.sqrt(Math.pow(line.e.x - line.s.x, 2) + Math.pow(line.e.y - line.s.y, 2));
+          const sag = dist > 40 ? 12 : 5;
+          return (
+            <React.Fragment key={i}>
+              <path d={`M ${line.s.x} ${line.s.y} Q ${(line.s.x+line.e.x)/2} ${(line.s.y+line.e.y)/2 + sag} ${line.e.x} ${line.e.y}`} fill="none" stroke="#400" strokeWidth="0.35" />
+              <path d={`M ${line.s.x} ${line.s.y} Q ${(line.s.x+line.e.x)/2} ${(line.s.y+line.e.y)/2 + sag} ${line.e.x} ${line.e.y}`} fill="none" stroke={RED} strokeWidth="0.2" filter="url(#string-shadow)" />
+            </React.Fragment>
+          );
+        })}
       </svg>
     </>
   );
@@ -243,28 +328,30 @@ export function EvidenceMode() {
     return (
       <div style={{ minHeight: '100vh', padding: '0', background: `radial-gradient(circle at 18% 22%, rgba(0,0,0,0.1) 1.5px, transparent 2px), radial-gradient(circle at 72% 38%, rgba(0,0,0,0.15) 1px, transparent 1.5px), linear-gradient(135deg, #2a1a0a 0%, #1A1A1A 100%)`, fontFamily: FONT }}>
         <AnimatePresence>
-          {phase === 'test_intro' && (
+          {(phase === 'test_intro' || testStage === 'intro') && (
             <motion.div initial={{ rotateY: -90, opacity: 0 }} animate={{ rotateY: 0, opacity: 1 }} exit={{ rotateY: 90, opacity: 0 }} transition={{ duration: 0.6 }}
               style={{ position:'fixed', inset:0, zIndex:100, background: MANILLA, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12 }}>
-              <div style={{ fontSize:28, fontWeight:900, color:'#2a1a0a', letterSpacing:'0.1em' }}>TESTING ARENA</div>
-              <div style={{ fontSize:12, color:'rgba(80,40,10,0.6)', letterSpacing:'0.2em' }}>COMPILING DETECTIVE RATIONALE...</div>
+              <div style={{ fontSize:28, fontWeight:900, color:'#2a1a0a', letterSpacing:'0.1em' }}>ASSIGNMENT REVIEW</div>
+              <div style={{ fontSize:12, color:'rgba(80,40,10,0.6)', letterSpacing:'0.2em' }}>{testResultIdx + 1} / {sessionResults.length} ANALYZED</div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {phase === 'test' && (
+        {(phase === 'test' && testStage !== 'intro') && (
           <div style={{ padding:'20px 24px 40px' }}>
             <motion.div initial={{ opacity:0, y:-12 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.2 }}
               style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18, background:POLA, padding:'12px 24px', borderRadius:2, transform:'rotate(-0.5deg)', boxShadow:'3px 5px 16px rgba(0,0,0,0.5)', position:'relative' }}>
               <RealisticPin color={RED} style={{ position:'absolute', top:8, left:10 }} />
               <div style={{ marginLeft:16 }}>
                 <div style={{ fontSize:11, color:RED, letterSpacing:'0.18em', fontWeight:900 }}>CLASSIFICATION RESULTS</div>
-                <div style={{ fontSize:32, fontWeight:900, color:'#1a1a1a', letterSpacing:'-0.02em' }}>{selectedCountry ? `PREDICTION: ${selectedCountry.toUpperCase()}` : 'SECTOR IDENTIFIED'}</div>
+                <div style={{ fontSize:32, fontWeight:900, color:'#1a1a1a', letterSpacing:'-0.02em' }}>{testSelectedCountry ? `PREDICTION: ${testSelectedCountry.toUpperCase()}` : 'SECTOR IDENTIFIED'}</div>
               </div>
-              <motion.button whileHover={{ scale:1.05 }} whileTap={{ scale:0.95 }} onClick={() => nav('/hub')}
-                style={{ background: '#1a1a1a', color:'#f5ede0', border:'none', padding:'8px 24px', borderRadius:3, fontSize:14, fontWeight:900, letterSpacing:'0.1em', cursor:'pointer', fontFamily:FONT, boxShadow:'0 4px 12px rgba(0,0,0,0.4)' }}>
-                RETURN TO HUB →
-              </motion.button>
+              <div style={{ display:'flex', gap:12 }}>
+                <motion.button whileHover={{ scale:1.05 }} whileTap={{ scale:0.95 }} onClick={() => nav('/hub')}
+                  style={{ background: 'rgba(0,0,0,0.1)', color:'#1a1a1a', border:'2px solid #1a1a1a', padding:'8px 16px', borderRadius:3, fontSize:12, fontWeight:900, letterSpacing:'0.1em', cursor:'pointer', fontFamily:FONT }}>
+                  ABORT
+                </motion.button>
+              </div>
             </motion.div>
 
             <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:20 }}>
@@ -276,12 +363,12 @@ export function EvidenceMode() {
                     EVIDENCE HEATMAP
                   </div>
                   <div style={{ position:'relative', overflow:'hidden' }}>
-                    <img src={reveal.url} style={{ width:'100%', height:340, objectFit:'cover', display:'block', filter: testStage === 'fight' ? 'brightness(0.6)' : 'brightness(1)', transition:'filter 0.8s' }} />
+                    <img src={testReveal.url} style={{ width:'100%', height:340, objectFit:'cover', display:'block', filter: testStage === 'fight' ? 'brightness(0.6)' : 'brightness(1)', transition:'filter 0.8s' }} />
                     <AnimatePresence>
                       {(testStage === 'annotate') && (
                         <>
                           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.65 }} style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 50%, rgba(255,0,0,0.8) 0%, rgba(255,255,0,0.5) 40%, transparent 80%)', mixBlendMode: 'multiply' }} />
-                          {reveal.probeTargets.map((pt, i) => (
+                          {testReveal.probeTargets.map((pt, i) => (
                             <motion.div key={i} initial={{ scale:0, opacity:0 }} animate={{ scale:1, opacity:1 }} transition={{ delay: i * 0.15, type:'spring' }}
                               style={{ position:'absolute', left:`${pt.x}%`, top:`${pt.y}%`, transform:'translate(-50%,-50%)', width:20, height:20, borderRadius:'50%', border:'2.5px solid #E53935', boxShadow:'0 0 8px rgba(229,57,53,0.8)' }}>
                               <div style={{ position:'absolute', top:-14, left:'50%', transform:'translateX(-50%)', fontSize:7, color:'#fff', fontWeight:900, whiteSpace:'nowrap', background:'rgba(0,0,0,0.7)', padding:'1px 4px', borderRadius:2 }}>{pt.label}</div>
@@ -301,6 +388,31 @@ export function EvidenceMode() {
                     </AnimatePresence>
                   </div>
                 </motion.div>
+
+                {/* Next Assignment / Done Button */}
+                <AnimatePresence>
+                  {testStage === 'annotate' && (
+                    <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.5 }} style={{ display:'flex', justifyContent:'center' }}>
+                       <motion.div 
+                        onClick={handleNextAssignment}
+                        whileHover={{ y:-10, scale:1.02 }} 
+                        whileTap={{ scale:0.98 }}
+                        style={{ 
+                          width: 220, height: 70, background: MANILLA, borderRadius: '4px 12px 4px 4px', cursor: 'pointer', 
+                          border: `2px solid ${MANILLA_DK}`, boxShadow: '0 8px 24px rgba(0,0,0,0.6)', 
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' 
+                        }}
+                      >
+                        <div style={{ position: 'absolute', top: -16, left: 6, background: MANILLA, padding: '2px 10px', borderRadius: '4px 4px 0 0', border: `2px solid ${MANILLA_DK}`, borderBottom: 'none', fontSize: 8, fontWeight: 'bold', color: '#333' }}>
+                          {testResultIdx < sessionResults.length - 1 ? 'PENDING CASE' : 'FINAL FILING'}
+                        </div>
+                        <div style={{ fontFamily: FONT, fontSize: 16, fontWeight: 900, color: '#1a1a1a', letterSpacing: '0.05em' }}>
+                          {testResultIdx < sessionResults.length - 1 ? 'NEXT ASSIGNMENT →' : 'CLOSE CASE FILES'}
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Right Column: Detective Notes Logic */}
@@ -315,18 +427,18 @@ export function EvidenceMode() {
                   <img src={getSpriteUrl(activePokemon.id)} style={{ width:40, height:40, imageRendering:'pixelated' }} />
                   <div>
                     <div style={{ fontSize:10, fontWeight:900, color:RED }}>{activePokemon.name} DECLARES:</div>
-                    <div style={{ fontSize:16, fontWeight:900, color:'#111' }}>{selectedCountry?.toUpperCase() || 'UNKNOWN'}</div>
+                    <div style={{ fontSize:16, fontWeight:900, color:'#111' }}>{testSelectedCountry?.toUpperCase() || 'UNKNOWN'}</div>
                   </div>
                 </div>
 
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                  {notes.map((n, i) => (
+                  {(testNotes || []).map((n: string, i: number) => (
                     <motion.div key={i} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: 0.8 + (i*0.2) }}
                       style={{ fontSize:12, color:'#1a1a1a', fontWeight:'bold', display:'flex', gap:8, lineHeight:1.4 }}>
                       <span style={{ color:RED }}>&gt;</span> {n}
                     </motion.div>
                   ))}
-                  {notes.length === 0 && (
+                  {(!testNotes || testNotes.length === 0) && (
                     <div style={{ fontSize:11, color:'#666', fontStyle:'italic' }}>No rationale recorded. Blind guess.</div>
                   )}
                 </div>
