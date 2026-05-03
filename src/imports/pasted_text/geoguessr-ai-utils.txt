@@ -1,0 +1,288 @@
+import os
+import json
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+import torchvision.models as models
+from torchvision import transforms
+import gradio as gr
+from ultralytics import YOLO
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
+
+# ==========================================
+# CUSTOM LIGHTWEIGHT MODEL
+# ==========================================
+class SimpleCNN(nn.Module):
+    """A lightning-fast CNN for instant training in the demo."""
+    def __init__(self, num_classes):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2)
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(64 * 28 * 28, 128), nn.ReLU(), nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = torch.flatten(x, 1)
+        return self.classifier(x)
+
+# ==========================================
+# ML MODEL SETUP & YOLO PROCESSING
+# ==========================================
+device = "cuda" if torch.cuda.is_available() else "cpu"
+current_model = None
+last_trained_model_name = None
+
+countries = ["France", "Japan", "Brazil", "Senegal"]
+
+print("Initializing YOLO-World...")
+yolo_model = YOLO("yolov8s-world.pt") 
+geoguessr_classes = [
+    "street sign", "license plate", "power line", "utility pole", 
+    "architecture", "building", "road markings", "tree", "mountain", 
+    "sky", "sand", "dirt road", "car", "person"
+]
+yolo_model.set_classes(geoguessr_classes)
+
+precomputed_data = {}
+for folder in ["dataset/train", "dataset/test"]:
+    if not os.path.exists(folder): continue
+    for filename in os.listdir(folder):
+        if not filename.endswith((".jpg", ".jpeg", ".png")): continue
+        img_path = os.path.join(folder, filename)
+        img = cv2.imread(img_path)
+        if img is None: continue
+
+        results = yolo_model(img, conf=0.05, verbose=False)[0]
+        objects_in_image = []
+        if results.boxes is not None:
+            for box in results.boxes:
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                class_id = int(box.cls[0].item())
+                objects_in_image.append({"name": geoguessr_classes[class_id], "bbox": [x1, y1, x2, y2]})
+        precomputed_data[filename] = objects_in_image
+
+def get_model(model_name):
+    if model_name == "SimpleCNN (Lightning Fast)":
+        model = SimpleCNN(len(countries))
+        target_layer = model.features[-3]
+    elif model_name == "ResNet18 (The Rookie)":
+        model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        model.fc = nn.Linear(model.fc.in_features, len(countries))
+        target_layer = model.layer4[-1]
+    else: 
+        model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+        model.fc = nn.Linear(model.fc.in_features, len(countries))
+        target_layer = model.layer4[-1]
+    return model.to(device), target_layer
+
+transform = transforms.Compose([
+    transforms.ToPILImage(), transforms.Resize((224, 224)),
+    transforms.ToTensor(), transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# ==========================================
+# GAME LOOP & UI FUNCTIONS
+# ==========================================
+train_imgs = sorted([os.path.join("dataset/train", f) for f in os.listdir("dataset/train")])
+test_imgs = sorted([os.path.join("dataset/test", f) for f in os.listdir("dataset/test")])
+
+high_value = ["street sign", "license plate", "power line", "utility pole", "road markings"]
+med_value = ["architecture", "building", "dirt road", "tree", "mountain"]
+low_value = ["sky", "sand", "car", "person"]
+
+def get_yolo_hints(image_path):
+    if not image_path: return ""
+    objects = precomputed_data.get(os.path.basename(image_path), [])
+    names = set([obj["name"] for obj in objects])
+    return f"**YOLO-World spotted:** {', '.join(names) if names else 'Nothing'}"
+
+def process_click(evt: gr.SelectData, image_path, current_notes, selected_country):
+    if not image_path: return current_notes
+    x, y = evt.index
+    objects = precomputed_data.get(os.path.basename(image_path), [])
+
+    found_evidence = None
+    min_dist = 200
+
+    for obj in objects:
+        x1, y1, x2, y2 = obj["bbox"]
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        dist = ((cx - x)**2 + (cy - y)**2)**0.5
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            found_evidence = obj["name"]
+            break
+        elif dist < min_dist:
+            min_dist, found_evidence = dist, obj["name"]
+
+    if found_evidence in high_value:
+        note = f"🐾 High-value clue ({found_evidence})! Strong evidence for {selected_country}."
+    elif found_evidence in med_value:
+        note = f"🐾 Hmm, a {found_evidence}... Could be useful context for {selected_country}."
+    elif found_evidence in low_value:
+        note = f"🐾 A {found_evidence}? Really? They have those everywhere. But I'll note it."
+    elif found_evidence is not None:
+        note = f"🐾 I see a '{found_evidence}', taking notes for {selected_country}!"
+    else:
+        note = f"🐾 *Sniff sniff*... Nothing detected near that click. Check the 'YOLO-World spotted' hint above!"
+        
+    return current_notes + "\n" + note if current_notes else note
+
+def next_image(current_idx):
+    new_idx = current_idx + 1
+    if new_idx >= len(train_imgs):
+        return new_idx, None, "🎉 All evidence gathered! Go to Phase 2 to automatically train your Pet.", "Done!", gr.update(interactive=False)
+    next_img_path = train_imgs[new_idx]
+    return new_idx, next_img_path, "", get_yolo_hints(next_img_path), gr.update(interactive=True)
+
+def train_pet_model(model_choice, progress=gr.Progress()):
+    global current_model, last_trained_model_name
+    if current_model is not None and last_trained_model_name == model_choice:
+        return f"✅ Model '{model_choice}' is already trained and ready!"
+        
+    model, _ = get_model(model_choice)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+    model.train()
+    
+    epochs = 4
+    for epoch in progress.tqdm(range(epochs), desc=f"Training {model_choice}..."):
+        for file in train_imgs:
+            img = cv2.imread(file)
+            if img is None: continue
+            tensor_img = transform(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).unsqueeze(0).to(device)
+            label_idx = next(i for i, c in enumerate(countries) if c in file)
+            
+            optimizer.zero_grad()
+            loss = criterion(model(tensor_img), torch.tensor([label_idx]).to(device))
+            loss.backward()
+            optimizer.step()
+            
+    current_model = model
+    last_trained_model_name = model_choice
+    return f"✅ Training Complete! {model_choice} is ready for the Test Arena."
+
+def test_pet_model(test_img_path, model_choice):
+    if not current_model: return "⚠️ Please click on the Phase 2 tab to trigger training first!", None
+    
+    model, target_layer = get_model(model_choice)
+    model.load_state_dict(current_model.state_dict())
+    model.eval()
+    
+    img = cv2.imread(test_img_path)
+    orig_h, orig_w = img.shape[:2]
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    tensor_img = transform(img_rgb).unsqueeze(0).to(device)
+
+    with torch.no_grad():
+        preds = model(tensor_img)
+        pred_idx = preds.argmax(dim=1).item()
+        predicted_country = countries[pred_idx]
+        confidence = torch.nn.functional.softmax(preds, dim=1)[0][pred_idx].item() * 100
+
+    cam = GradCAM(model=model, target_layers=[target_layer])
+    grayscale_cam = cam(input_tensor=tensor_img, targets=None)[0, :]
+    
+    # ----------------------------------------------------
+    # EXTRACT LOGIC: Map YOLO boxes to Grad-CAM Activation
+    # ----------------------------------------------------
+    filename = os.path.basename(test_img_path)
+    objects = precomputed_data.get(filename, [])
+    
+    object_scores = []
+    for obj in objects:
+        x1, y1, x2, y2 = obj["bbox"]
+        name = obj["name"]
+        
+        # Scale bounding box to the 224x224 heatmap
+        sx1 = max(0, int(x1 * 224 / orig_w))
+        sy1 = max(0, int(y1 * 224 / orig_h))
+        sx2 = min(224, int(x2 * 224 / orig_w))
+        sy2 = min(224, int(y2 * 224 / orig_h))
+        
+        # Ensure box is valid
+        if sx2 > sx1 and sy2 > sy1:
+            cam_crop = grayscale_cam[sy1:sy2, sx1:sx2]
+            # Average attention "heat" inside this specific object
+            avg_heat = np.mean(cam_crop)
+            object_scores.append((name, avg_heat))
+            
+    # Sort objects by hottest attention score
+    object_scores.sort(key=lambda x: x[1], reverse=True)
+    
+    # Deduplicate names (so it doesn't say "tree -> tree -> tree")
+    seen = set()
+    top_objects = []
+    for name, score in object_scores:
+        if name not in seen:
+            seen.add(name)
+            top_objects.append(name)
+        if len(top_objects) == 3: # Keep top 3 for the string
+            break
+            
+    if top_objects:
+        logic_str = f"🐾 `{ ' -> '.join(top_objects) } == {predicted_country}??`"
+    else:
+        logic_str = f"🐾 `General environment / vibes == {predicted_country}??`"
+    # ----------------------------------------------------
+
+    heatmap_img = show_cam_on_image(np.float32(cv2.resize(img_rgb, (224, 224))) / 255, grayscale_cam, use_rgb=True)
+    
+    result_text = f"**Prediction:** {predicted_country}\n**Confidence:** {confidence:.1f}%\n\n**Pet's Logic (Based on Attention Map):**\n{logic_str}"
+    
+    return result_text, heatmap_img
+
+# ==========================================
+# NEW GRADIO UI
+# ==========================================
+with gr.Blocks(theme=gr.themes.Monochrome()) as demo:
+    gr.Markdown("# 🕵️ Annotopia: Detective Hunt")
+    model_selector = gr.Radio(["SimpleCNN (Lightning Fast)", "ResNet18 (The Rookie)", "ResNet50 (The Veteran)"], value="SimpleCNN (Lightning Fast)", label="Choose Pet's Brain")
+    
+    with gr.Tabs():
+        # --- PHASE 1 ---
+        with gr.Tab("Phase 1: Setup & Evidence"):
+            current_image_index = gr.State(value=0)
+            
+            with gr.Row():
+                with gr.Column(scale=2):
+                    game_image = gr.Image(value=train_imgs[0] if train_imgs else None, type="filepath", label="Click on objects to gather evidence!")
+                    yolo_hints = gr.Markdown(value=get_yolo_hints(train_imgs[0] if train_imgs else None))
+                    
+                with gr.Column(scale=1):
+                    country_mcq = gr.Dropdown(choices=countries, label="1. Where is this?", value=countries[0])
+                    evidence_log = gr.Textbox(label="2. Pet Notes (Clicks will appear here)", lines=8, interactive=False)
+                    submit_next_btn = gr.Button("Submit Evidence & Next Image ➡️", variant="primary")
+            
+            # Events
+            game_image.select(process_click, inputs=[game_image, evidence_log, country_mcq], outputs=[evidence_log])
+            submit_next_btn.click(
+                next_image, 
+                inputs=[current_image_index], 
+                outputs=[current_image_index, game_image, evidence_log, yolo_hints, submit_next_btn]
+            )
+
+        # --- PHASE 2 ---
+        with gr.Tab("Phase 2: Test Arena") as test_tab:
+            train_status = gr.Markdown("Waiting for training to start...")
+            with gr.Row():
+                with gr.Column():
+                    test_image_dropdown = gr.Dropdown(choices=test_imgs, label="Select Unseen Test Image", value=test_imgs[0] if test_imgs else None)
+                    preview_image = gr.Image(value=test_imgs[0] if test_imgs else None, type="filepath")
+                    test_image_dropdown.change(lambda x: x, inputs=test_image_dropdown, outputs=preview_image)
+                    test_btn = gr.Button("Deploy Pet Detective 🚀", variant="primary")
+
+                with gr.Column():
+                    prediction_output = gr.Markdown()
+                    heatmap_output = gr.Image(label="Pet's Brain (Grad-CAM)")
+
+            test_tab.select(train_pet_model, inputs=[model_selector], outputs=[train_status])
+            test_btn.click(test_pet_model, inputs=[test_image_dropdown, model_selector], outputs=[prediction_output, heatmap_output])
+
+demo.launch(debug=True)

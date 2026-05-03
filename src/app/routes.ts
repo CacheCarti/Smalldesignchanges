@@ -15,6 +15,7 @@ import { PvP } from './pages/PvP';
 import { BucketMap } from './pages/BucketMap';
 import { DispatchMode } from './pages/DispatchMode';
 import { Agency } from './pages/Agency';
+import { EvidenceMode } from './pages/EvidenceMode';
 
 export const router = createBrowserRouter([
   {
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
       { path: 'map', Component: BucketMap },
       { path: 'dispatch', Component: DispatchMode },
       { path: 'agency', Component: Agency },
+      { path: 'evidence', Component: EvidenceMode },
     ],
   },
 ]);

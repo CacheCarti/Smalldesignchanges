@@ -19,12 +19,12 @@ const AMBER     = '#f5a742';
 const MANILLA   = '#D5BCA4';
 
 const QUICK_LAUNCH = [
+  { path:'/evidence',   icon:'🔍', label:'EVIDENCE MODE',  subtext:'Geoguessr Style', bg: STICKY_G, rot:-2   },
   { path:'/map',        icon:'🗺️', label:'TRAINING MAP',   subtext:'Case board',  bg: STICKY_Y, rot:-1.5 },
   { path:'/loadout',    icon:'🐾', label:'ASSEMBLE SQUAD', subtext:'Pick operative', bg: STICKY_B, rot:1   },
-  { path:'/market',     icon:'🔦', label:'BLACK MARKET',   subtext:'Trade & acquire', bg: STICKY_G, rot:-0.8 },
+  { path:'/market',     icon:'🔦', label:'BLACK MARKET',   subtext:'Trade & acquire', bg: '#FFCDD2', rot:-0.8 },
   { path:'/agency',     icon:'🕵️', label:'AGENCY ROSTER',  subtext:'Agent profiles', bg: STICKY_P, rot:1.5  },
   { path:'/leaderboard',icon:'📁', label:'CASE FILES',     subtext:'Rankings',      bg: STICKY_Y, rot:-1   },
-  { path:'/pvp',        icon:'⚔️', label:'PVP ARENA',      subtext:'Coming soon',   bg:'#FFCDD2', rot:0.7  },
 ];
 
 const CASE_LOG = [
