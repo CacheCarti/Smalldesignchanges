@@ -8,6 +8,7 @@ import { GameSelectPage } from './pages/GameSelectPage';
 import { Loadout } from './pages/Loadout';
 import { Battle } from './pages/Battle';
 import { Results } from './pages/Results';
+import { Benchmark } from './pages/Benchmark';
 import { Market } from './pages/Market';
 import { LeaderboardPage } from './pages/LeaderboardPage';
 import { ReviewerMode } from './pages/ReviewerMode';
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
       { path: 'dispatch', Component: DispatchMode },
       { path: 'agency', Component: Agency },
       { path: 'evidence', Component: EvidenceMode },
+      { path: 'benchmark', Component: Benchmark },
     ],
   },
 ]);

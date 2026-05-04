@@ -19,7 +19,7 @@ const AMBER     = '#f5a742';
 const MANILLA   = '#D5BCA4';
 
 const QUICK_LAUNCH = [
-  { path:'/evidence',   icon:'🔍', label:'EVIDENCE MODE',  subtext:'Geoguessr Style', bg: STICKY_G, rot:-2   },
+  { path:'/loadout?target=evidence',   icon:'🔍', label:'EVIDENCE MODE',  subtext:'Geoguessr Style', bg: STICKY_G, rot:-2   },
   { path:'/map',        icon:'🗺️', label:'TRAINING MAP',   subtext:'Case board',  bg: STICKY_Y, rot:-1.5 },
   { path:'/loadout',    icon:'🐾', label:'ASSEMBLE SQUAD', subtext:'Pick operative', bg: STICKY_B, rot:1   },
   { path:'/market',     icon:'🔦', label:'BLACK MARKET',   subtext:'Trade & acquire', bg: '#FFCDD2', rot:-0.8 },

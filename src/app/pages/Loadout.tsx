@@ -27,8 +27,10 @@ export function Loadout() {
     if (!activePokemon) return;
     initCardCombat(activePokemon);
     setFlipping(true);
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get('target') === 'evidence' ? '/evidence' : '/battle';
     // After flip animation, navigate
-    setTimeout(() => nav('/battle'), 800);
+    setTimeout(() => nav(target), 800);
   };
 
   return (
