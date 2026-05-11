@@ -1,607 +1,782 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useGame } from '../context/GameContext';
-import { BATTLE_IMAGES, TEST_REVEAL_IMAGES } from '../data/gameImages';
-import { getSpriteUrl, ARCHITECTURE_COLORS } from '../data/pokemon';
-import { ActivePetGuide } from '../components/ActivePetGuide';
+import { getSpriteUrl } from '../data/pokemon';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 
-const BG_DARK   = '#141414';
-const BG_MID    = '#1F1A17';
-const CORK      = BG_MID;
-const POLA      = '#f5ede0';
-const STICKY_Y  = '#F9E97E';
-const STICKY_R  = '#FFCDD2';
-const STICKY_B  = '#BBDEFB';
-const STICKY_G  = '#C8E6C9';
-const MANILLA   = '#D5BCA4';
-const MANILLA_DK= '#C4AB93';
-const FONT      = "'Courier New', monospace";
-const FONT_MARKER = "'Comic Sans MS', 'Chalkboard SE', sans-serif";
-const RED_STR   = '#C62828';
-const RED       = '#C62828';
+const POLA = '#f5ede0';
+const PAPER = '#f1e6cf';
+const STICKY_Y = '#F9E97E';
+const STICKY_B = '#BBDEFB';
+const FONT = "'Courier New', monospace";
+const FONT_HAND = "'Comic Sans MS', 'Chalkboard SE', sans-serif";
+const RED = '#B23A2E';
+const NAVY = '#1A3A5C';
 
-const ROUND_TIME   = 120;
-const NUM_IMAGES   = 2; // Shortened for demo
+type Klass = 'Senegal' | 'France' | 'Japan' | 'Brazil';
+const CLASSES: Klass[] = ['Senegal', 'France', 'Japan', 'Brazil'];
 
-type Phase = 'intro' | 'playing' | 'dispatch' | 'test_intro' | 'test' | 'done';
-type Mode  = 'probe' | 'lasso' | 'scan';
+type EvidencePoint = { id: string; x: number; y: number; label: string; petQuip: string };
+type Case = { id: string; url: string; truth: Klass; evidence: EvidencePoint[]; petGuess?: { klass: Klass; conf: number } };
 
-interface Annotation {
-  mode: Mode; x: number; y: number; w?: number; h?: number;
-  qIdx: 0|1|2; correct?: boolean;
-}
-
-const Q_COLORS  = [STICKY_R, STICKY_B, STICKY_G];
-const Q_TOOLS: Mode[] = ['probe', 'lasso', 'scan'];
-const Q_TOOL_LABELS = ['📍 PROBE', '✏️ LASSO', '🔍 SCAN'];
-
-const COUNTRIES = ['France', 'Japan', 'Brazil', 'Senegal'];
-const MOCK_OPPONENTS = [
-  { name: 'NeuroDetective_X', color: '#b879ff', progress: 42, acc: 72 },
-  { name: 'DragonMaster99',   color: '#22d3ee', progress: 28, acc: 65 },
-  { name: 'AgentGhost',       color: '#a3a3a3', progress: 84, acc: 88 },
+const TRAIN: Case[] = [
+  { id: 'tr1', url: 'https://images.unsplash.com/photo-1547471080-7cb2ac6470b9?w=900', truth: 'Senegal',
+    evidence: [
+      { id: 'a', x: 62, y: 78, label: 'red dirt road', petQuip: "Boss says red dirt = Senegal. Noted." },
+      { id: 'b', x: 22, y: 34, label: 'acacia trees', petQuip: "Thin acacias logged under 'Sahel'." },
+    ]},
+  { id: 'tr2', url: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=900', truth: 'France',
+    evidence: [
+      { id: 'a', x: 50, y: 55, label: 'eiffel tower', petQuip: "Wrought-iron lattice → France. Got it." },
+      { id: 'b', x: 28, y: 80, label: 'cobblestone', petQuip: "Cobblestone pattern noted." },
+    ]},
+  { id: 'tr3', url: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=900', truth: 'Japan',
+    evidence: [
+      { id: 'a', x: 55, y: 45, label: 'pagoda roof', petQuip: "Curved pagoda eaves → Japan." },
+      { id: 'b', x: 30, y: 70, label: 'cherry blossom', petQuip: "Pink petals. Filing under 'sakura'." },
+    ]},
+  { id: 'tr4', url: 'https://images.unsplash.com/photo-1483729558449-99ef09a8c325?w=900', truth: 'Brazil',
+    evidence: [
+      { id: 'a', x: 50, y: 50, label: 'favela tile roofs', petQuip: "Stacked tile roofs → Brazil. Got it." },
+      { id: 'b', x: 70, y: 25, label: 'palm trees', petQuip: "Coastal palms cross-referenced." },
+    ]},
+  { id: 'tr5', url: 'https://images.unsplash.com/photo-1523805009345-7448845a9e53?w=900', truth: 'Senegal',
+    evidence: [
+      { id: 'a', x: 45, y: 60, label: 'dusty haze', petQuip: "Harmattan haze. Sahel signature." },
+      { id: 'b', x: 75, y: 80, label: 'baobab silhouette', petQuip: "Baobab! Dead giveaway." },
+    ]},
+  { id: 'tr6', url: 'https://images.unsplash.com/photo-1492571350019-22de08371fd3?w=900', truth: 'Japan',
+    evidence: [
+      { id: 'a', x: 40, y: 55, label: 'neon kanji', petQuip: "Neon kanji signs → Japan, urban." },
+      { id: 'b', x: 65, y: 75, label: 'narrow alley', petQuip: "Cramped alley geometry noted." },
+    ]},
+  { id: 'tr7', url: 'https://images.unsplash.com/photo-1431274172761-fca41d930114?w=900', truth: 'France',
+    evidence: [
+      { id: 'a', x: 50, y: 40, label: 'haussmann facade', petQuip: "Haussmann balconies → Paris-coded." },
+      { id: 'b', x: 30, y: 80, label: 'café awning', petQuip: "Striped awning. Très français." },
+    ]},
 ];
+
+const TEST: Case[] = [
+  { id: 'te1', url: 'https://images.unsplash.com/photo-1589998059171-988d887df646?w=1080', truth: 'Senegal',
+    evidence: [
+      { id: 'a', x: 55, y: 70, label: 'reddish soil', petQuip: "Reddish lateritic soil — Senegal training match." },
+      { id: 'b', x: 25, y: 40, label: 'thin trees', petQuip: "Thin acacia silhouettes — savanna." },
+    ], petGuess: { klass: 'Senegal', conf: 0.87 }},
+  { id: 'te2', url: 'https://images.unsplash.com/photo-1493780474015-ba834fd0ce2f?w=1080', truth: 'France',
+    evidence: [
+      { id: 'a', x: 50, y: 50, label: 'stone arch', petQuip: "Stone arch + slate roof = France." },
+      { id: 'b', x: 75, y: 75, label: 'vine row', petQuip: "Vineyard rows. Bordeaux-shaped." },
+    ], petGuess: { klass: 'France', conf: 0.81 }},
+  { id: 'te3', url: 'https://images.unsplash.com/photo-1480796927426-f609979314bd?w=1080', truth: 'Japan',
+    evidence: [
+      { id: 'a', x: 60, y: 40, label: 'cedar slope', petQuip: "Cedar-covered slope. Honshu vibes." },
+      { id: 'b', x: 30, y: 70, label: 'torii red', petQuip: "Red torii in frame — Japan, confident." },
+    ], petGuess: { klass: 'Japan', conf: 0.92 }},
+  { id: 'te4', url: 'https://images.unsplash.com/photo-1551867633-194f125bddfa?w=1080', truth: 'Brazil',
+    evidence: [
+      { id: 'a', x: 50, y: 55, label: 'beach skyline', petQuip: "Beach-meets-skyline. Copacabana energy." },
+      { id: 'b', x: 25, y: 35, label: 'sugarloaf', petQuip: "Granite dome silhouette — Sugarloaf?" },
+    ], petGuess: { klass: 'Brazil', conf: 0.78 }},
+  { id: 'te5', url: 'https://images.unsplash.com/photo-1516306580123-e6e52b1b7b5f?w=1080', truth: 'Senegal',
+    evidence: [
+      { id: 'a', x: 50, y: 70, label: 'dirt road', petQuip: "Dirt road tone matches training set 1 + 5." },
+      { id: 'b', x: 70, y: 30, label: 'baobab', petQuip: "Baobab again. Two cases in, I know this." },
+    ], petGuess: { klass: 'Senegal', conf: 0.84 }},
+];
+
+type Phase = 'intro' | 'train' | 'test' | 'done';
+
+type PadEntry = { id: string; text: string; klass: Klass };
+type StickyData = { id: string; text: string; imgX: number; imgY: number; side: 'L' | 'R'; kind: 'player' | 'ai' };
 
 export function EvidenceMode() {
   const nav = useNavigate();
   const { activePokemon } = useGame();
 
   const [phase, setPhase] = useState<Phase>('intro');
-  const [imageIdx, setImageIdx] = useState(0);
-  const [qIdx, setQIdx] = useState<0|1|2>(0);
-  const [time, setTime] = useState(ROUND_TIME);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
-  const [opponents, setOpponents] = useState(MOCK_OPPONENTS);
-  
-  const [testStage, setTestStage] = useState<'intro' | 'fight' | 'winner' | 'annotate'>('intro');
-  
-  const [sweepDrag, setSweepDrag] = useState<{ x:number; y:number; w:number; h:number } | null>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const [canvasRect, setCanvasRect] = useState<DOMRect | null>(null);
-  const [lastClickPos, setLastClickPos] = useState<{ x:number; y:number } | null>(null);
-  const [lastAnnotationTime, setLastAnnotationTime] = useState<number>(0);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [pokemonFaded, setPokemonFaded] = useState(false);
+  const [idx, setIdx] = useState(0); // round index within phase
+  const [petMsg, setPetMsg] = useState('');
 
-  const image = BATTLE_IMAGES[imageIdx % BATTLE_IMAGES.length];
-  const activeTool: Mode = Q_TOOLS[qIdx];
-  const reveal = TEST_REVEAL_IMAGES[imageIdx % TEST_REVEAL_IMAGES.length];
+  const [playerGuess, setPlayerGuess] = useState<Klass | null>(null);
+  const [markedIds, setMarkedIds] = useState<string[]>([]);
+  const [stickies, setStickies] = useState<StickyData[]>([]);
+  const [pad, setPad] = useState<PadEntry[]>([]);
+  const [showHeat, setShowHeat] = useState(false);
+  const [petAnswered, setPetAnswered] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLDivElement>(null);
+  const stickyRefs = useRef<{ [k: string]: HTMLDivElement | null }>({});
+  const [conns, setConns] = useState<{ sx: number; sy: number; ex: number; ey: number; color: string }[]>([]);
+
+  const currentSet = phase === 'train' ? TRAIN : TEST;
+  const current = currentSet[idx];
+  const trainTotal = TRAIN.length;
+  const testTotal = TEST.length;
 
   useEffect(() => {
     if (!activePokemon) { nav('/loadout?target=evidence'); return; }
-    const t = setTimeout(() => setPhase('playing'), 1600);
+    const t = setTimeout(() => {
+      setPhase('train');
+      setPetMsg(`Round 1 of ${trainTotal}. Pick the country, then circle the clues. I'll take notes.`);
+    }, 1300);
     return () => clearTimeout(t);
   }, []);
 
+  // Strings
+  const recompute = () => {
+    if (!containerRef.current || !imageRef.current) return;
+    const c = containerRef.current.getBoundingClientRect();
+    const im = imageRef.current.getBoundingClientRect();
+    const next: typeof conns = [];
+    stickies.forEach(n => {
+      const el = stickyRefs.current[n.id];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const sx = (n.side === 'L' ? r.right : r.left) - c.left;
+      const sy = r.top + r.height / 2 - c.top;
+      const ex = im.left + (n.imgX / 100) * im.width - c.left;
+      const ey = im.top + (n.imgY / 100) * im.height - c.top;
+      next.push({ sx, sy, ex, ey, color: n.kind === 'player' ? RED : NAVY });
+    });
+    setConns(next);
+  };
   useEffect(() => {
-    const updateRect = () => { if (canvasRef.current) setCanvasRect(canvasRef.current.getBoundingClientRect()); };
-    updateRect();
-    window.addEventListener('resize', updateRect);
-    return () => window.removeEventListener('resize', updateRect);
-  }, [phase]);
+    const t = setTimeout(recompute, 60);
+    window.addEventListener('resize', recompute);
+    return () => { clearTimeout(t); window.removeEventListener('resize', recompute); };
+  }, [stickies, phase, idx]);
 
-  useEffect(() => {
-    if (phase !== 'playing') return;
-    const iv = setInterval(() => {
-      setTime(t => { if (t <= 1) { clearInterval(iv); setPhase('dispatch'); return 0; } return t - 1; });
-      setOpponents(prev => prev.map(o => ({ ...o, progress: Math.min(100, o.progress + Math.random() * 1.5) })));
-    }, 1000);
-    return () => clearInterval(iv);
-  }, [phase]);
+  // ---------- TRAINING interactions ----------
+  const slotsL = useRef(0);
+  const slotsR = useRef(0);
 
-  useEffect(() => {
-    if (phase !== 'dispatch') return;
-    const t = setTimeout(() => setPhase('test_intro'), 3200);
-    return () => clearTimeout(t);
-  }, [phase]);
+  const resetRound = () => {
+    setPlayerGuess(null);
+    setMarkedIds([]);
+    setStickies([]);
+    setShowHeat(false);
+    setPetAnswered(false);
+    slotsL.current = 0;
+    slotsR.current = 0;
+  };
 
-  useEffect(() => {
-    if (phase === 'test_intro') {
-      const t = setTimeout(() => {
-        setPhase('test');
-        setTestStage('fight');
-      }, 1500);
-      return () => clearTimeout(t);
-    }
-  }, [phase]);
+  const handleImageClick = (e: React.MouseEvent) => {
+    if (!imageRef.current) return;
+    const r = imageRef.current.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * 100;
+    const y = ((e.clientY - r.top) / r.height) * 100;
 
-  useEffect(() => {
-    if (phase === 'test') {
-      if (testStage === 'fight') {
-        const t = setTimeout(() => setTestStage('winner'), 1800);
-        return () => clearTimeout(t);
-      } else if (testStage === 'winner') {
-        const t = setTimeout(() => setTestStage('annotate'), 1200);
-        return () => clearTimeout(t);
-      }
-    }
-  }, [phase, testStage]);
-
-  const handleCanvasClick = (e: React.MouseEvent) => {
-    if (phase !== 'playing' || !selectedCountry) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    const correct = Math.random() > 0.5;
-
-    if (activeTool === 'probe' || activeTool === 'scan') {
-      setAnnotations(prev => [...prev, { mode: activeTool, x, y, qIdx, correct }]);
-      setLastAnnotationTime(Date.now());
-      setLastClickPos({ x, y });
-      setPokemonFaded(true);
-      setTimeout(() => setPokemonFaded(false), 1000);
-      
-      const flavorTexts = [
-        `Sniffing around... definitely ${selectedCountry} markings.`,
-        `This vegetation index matches the ${selectedCountry} file.`,
-        `Logging coordinates. Strong probability of ${selectedCountry}.`,
-        `Paws-on investigation suggests ${selectedCountry} architecture.`
-      ];
-      addNote(flavorTexts[Math.floor(Math.random() * flavorTexts.length)]);
+    if (phase === 'train') {
+      if (!playerGuess) { setPetMsg("Pick the country first, Boss."); return; }
+      const ev = current.evidence.find(p => Math.hypot(p.x - x, p.y - y) < 13);
+      if (!ev) { setPetMsg("Nothing on the board there, Boss."); return; }
+      if (markedIds.includes(ev.id)) return;
+      const side: 'L' | 'R' = ev.x > 50 ? 'R' : 'L';
+      setMarkedIds(prev => [...prev, ev.id]);
+      setStickies(prev => [...prev, { id: `pl-${current.id}-${ev.id}`, text: `BOSS: ${ev.label}`, imgX: ev.x, imgY: ev.y, side, kind: 'player' }]);
+      setPad(p => [...p, { id: `${current.id}-${ev.id}`, text: ev.petQuip, klass: current.truth }]);
+      setPetMsg(ev.petQuip);
     }
   };
 
-  const handleSweepStart = (e: React.MouseEvent) => {
-    if (phase !== 'playing' || activeTool !== 'lasso' || !selectedCountry) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    setSweepDrag({ x: ((e.clientX - rect.left)/rect.width)*100, y: ((e.clientY - rect.top)/rect.height)*100, w:0, h:0 });
+  const submitGuess = (k: Klass) => {
+    if (phase !== 'train' || playerGuess) return;
+    setPlayerGuess(k);
+    const correct = k === current.truth;
+    setPetMsg(correct
+      ? `${k}? Yes Boss. I'll remember the look of this one.`
+      : `${k}? Hm. Truth is ${current.truth}. Filing the correction.`);
+    setPad(p => [...p, { id: `${current.id}-meta`, text: correct ? `Boss called ${k}. ✓` : `Boss said ${k}, actually ${current.truth}.`, klass: current.truth }]);
   };
-  const handleSweepMove = (e: React.MouseEvent) => {
-    if (!sweepDrag || activeTool !== 'lasso') return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = ((e.clientX - rect.left)/rect.width)*100;
-    const y = ((e.clientY - rect.top)/rect.height)*100;
-    setSweepDrag({ ...sweepDrag, w: x - sweepDrag.x, h: y - sweepDrag.y });
-  };
-  const handleSweepEnd = () => {
-    if (!sweepDrag) return;
-    if (Math.abs(sweepDrag.w) > 2 && Math.abs(sweepDrag.h) > 2) {
-      setAnnotations(prev => [...prev, { mode: 'lasso', ...sweepDrag, qIdx, correct: true }]);
-      setLastAnnotationTime(Date.now());
-      setLastClickPos({ x: sweepDrag.x + sweepDrag.w / 2, y: sweepDrag.y + sweepDrag.h / 2 });
-      addNote(`Captured region anomaly for ${selectedCountry} verification.`);
+
+  const nextTrain = () => {
+    if (idx + 1 < trainTotal) {
+      setIdx(idx + 1);
+      resetRound();
+      setPetMsg(`Round ${idx + 2} of ${trainTotal}. Show me another, Boss.`);
+    } else {
+      setIdx(0);
+      resetRound();
+      setPhase('test');
+      setPetMsg(`Training done. Test photo 1 of ${testTotal} — let me work.`);
+      setTimeout(() => runInference(0), 900);
     }
-    setSweepDrag(null);
   };
 
-  const addNote = (text: string) => {
-    setNotes(prev => [...prev, text].slice(-8));
+  // ---------- TESTING ----------
+  const runInference = (i: number) => {
+    const c = TEST[i];
+    setShowHeat(true);
+    setPetMsg("Activating attention map...");
+    slotsL.current = 0;
+    slotsR.current = 0;
+    c.evidence.forEach((ev, k) => {
+      setTimeout(() => {
+        const side: 'L' | 'R' = ev.x > 50 ? 'R' : 'L';
+        setStickies(prev => [...prev, { id: `ai-${c.id}-${ev.id}`, text: ev.petQuip, imgX: ev.x, imgY: ev.y, side, kind: 'ai' }]);
+        setPetMsg(ev.petQuip);
+      }, 700 + k * 1300);
+    });
+    setTimeout(() => {
+      setPetAnswered(true);
+      const g = c.petGuess!;
+      setPetMsg(`Verdict: ${g.klass}. ${(g.conf * 100).toFixed(0)}% confidence.`);
+    }, 700 + c.evidence.length * 1300 + 700);
   };
 
-  const nextImage = () => {
-    if (imageIdx >= NUM_IMAGES - 1) { setPhase('dispatch'); return; }
-    setImageIdx(imageIdx + 1);
-    setQIdx(0);
-    setAnnotations([]);
-    setNotes([]);
-    setSelectedCountry(null);
+  const nextTest = () => {
+    if (idx + 1 < testTotal) {
+      const next = idx + 1;
+      setIdx(next);
+      resetRound();
+      setPetMsg(`Test photo ${next + 1} of ${testTotal}.`);
+      setTimeout(() => runInference(next), 700);
+    } else {
+      setPhase('done');
+      setPetMsg("All five cases closed, Boss. Coffee time.");
+    }
   };
 
-  const arch = activePokemon ? ARCHITECTURE_COLORS[activePokemon.architecture] : ARCHITECTURE_COLORS.CNN;
+  return (
+    <div ref={containerRef} className="relative h-screen w-screen overflow-hidden" style={{ fontFamily: FONT, ...corkboardBg }}>
+      <div style={corkSpeckle} />
+      <div style={vignette} />
 
-  // Render Phase 2 (Test Arena)
-  if (phase === 'test' || phase === 'test_intro') {
-    const isWinnerStage = testStage === 'winner' || testStage === 'annotate';
-    return (
-      <div style={{ minHeight: '100vh', padding: '0', background: `radial-gradient(circle at 18% 22%, rgba(0,0,0,0.1) 1.5px, transparent 2px), radial-gradient(circle at 72% 38%, rgba(0,0,0,0.15) 1px, transparent 1.5px), linear-gradient(135deg, ${CORK} 0%, #1A1A1A 100%)`, fontFamily: FONT }}>
-        <AnimatePresence>
-          {phase === 'test_intro' && (
-            <motion.div initial={{ rotateY: -90, opacity: 0 }} animate={{ rotateY: 0, opacity: 1 }} exit={{ rotateY: 90, opacity: 0 }} transition={{ duration: 0.6 }}
-              style={{ position:'fixed', inset:0, zIndex:100, background: MANILLA, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12 }}>
-              <div style={{ fontSize:28, fontWeight:900, color:'#2a1a0a', letterSpacing:'0.1em' }}>TESTING ARENA</div>
-              <div style={{ fontSize:12, color:'rgba(80,40,10,0.6)', letterSpacing:'0.2em' }}>COMPILING DETECTIVE RATIONALE...</div>
-            </motion.div>
+      {/* ============== DESK PROPS ============== */}
+      <CornerProp src="https://images.unsplash.com/photo-1500634245200-e5245c7574ef?w=300"
+                  style={{ top: 72, left: 18, width: 130, height: 95, transform: 'rotate(-7deg)' }} caption="EXHIBIT A" />
+      <CornerProp src="https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=300"
+                  style={{ bottom: 175, left: 16, width: 150, height: 105, transform: 'rotate(5deg)' }} caption="ARCHIVE" />
+      <CornerProp src="https://images.unsplash.com/photo-1505764706515-aa95265c5abc?w=300"
+                  style={{ top: 195, left: 28, width: 120, height: 88, transform: 'rotate(-2deg)' }} caption="WITNESS" />
+      <ManilaFolder style={{ top: 70, right: 22 }} />
+      <Newspaper style={{ bottom: 18, right: 36 }} />
+      <MagnifyingGlass style={{ top: 320, right: 60 }} />
+      <CoffeeStain style={{ top: 470, right: 220 }} />
+      <CoffeeStain style={{ bottom: 230, left: 230 }} small />
+      <Paperclip style={{ top: 60, left: 280, transform: 'rotate(28deg)' }} />
+      <Paperclip style={{ bottom: 320, right: 280, transform: 'rotate(-60deg)' }} />
+      <Stamp style={{ top: 28, right: 200 }} text="CLASSIFIED" />
+      <Stamp style={{ bottom: 30, left: 200, transform: 'rotate(-12deg)' }} text="EVIDENCE" tone="navy" />
+      <Pencil style={{ top: 450, left: 220, transform: 'rotate(40deg)' }} />
+      <Pencil style={{ top: 28, right: 380, transform: 'rotate(-20deg)' }} />
+      <Postcard style={{ bottom: 200, right: 200, transform: 'rotate(8deg)' }} />
+      <InkBottle style={{ bottom: 22, left: 420 }} />
+      <Matchbook style={{ top: 200, right: 230, transform: 'rotate(14deg)' }} />
+
+      {/* SVG strings */}
+      <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 6, pointerEvents: 'none' }}>
+        <defs>
+          <filter id="stringShadow"><feDropShadow dx="1" dy="2" stdDeviation="1.5" floodColor="#000" floodOpacity="0.55"/></filter>
+        </defs>
+        {conns.map((c, i) => {
+          const mx = (c.sx + c.ex) / 2;
+          const my = Math.min(c.sy, c.ey) - 20;
+          return <path key={i} d={`M ${c.sx} ${c.sy} Q ${mx} ${my} ${c.ex} ${c.ey}`}
+                       fill="none" stroke={c.color} strokeWidth={2.5} strokeLinecap="round" filter="url(#stringShadow)" />;
+        })}
+      </svg>
+
+      {/* HEADER */}
+      <div style={{ position: 'absolute', top: 14, left: 14, zIndex: 30 }}>
+        <div style={headerCard}>
+          <div style={{ fontSize: 11, color: '#a08a6a', letterSpacing: '0.3em' }}>CASE #8402 / EVIDENCE MODE</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: POLA, letterSpacing: '0.15em', marginTop: 2 }}>
+            {phase === 'intro' && '— BOOTING —'}
+            {phase === 'train' && `PHASE I · TRAINING ${idx + 1}/${trainTotal}`}
+            {phase === 'test' && `PHASE II · INFERENCE ${idx + 1}/${testTotal}`}
+            {phase === 'done' && 'CASE CLOSED'}
+          </div>
+        </div>
+      </div>
+
+      <button onClick={() => nav('/hub')}
+              style={{ position: 'absolute', top: 14, right: 14, zIndex: 30,
+                       background: '#1a1410', color: POLA, border: '1px solid #5a3e20',
+                       padding: '8px 18px', borderRadius: 3, fontFamily: FONT, fontSize: 12,
+                       fontWeight: 900, letterSpacing: '0.15em', cursor: 'pointer',
+                       boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+        ABORT CASE
+      </button>
+
+      {/* INTRO */}
+      <AnimatePresence>
+        {phase === 'intro' && (
+          <motion.div initial={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      className="absolute inset-0 z-50 flex items-center justify-center"
+                      style={{ background: 'rgba(10,7,5,0.92)' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#a08a6a', letterSpacing: '0.4em' }}>ANNOTOPIA</div>
+              <h2 style={{ fontSize: 36, color: POLA, fontWeight: 900, letterSpacing: '0.25em', marginTop: 8 }}>
+                THE DETECTIVE'S BOARD
+              </h2>
+              <p style={{ color: '#7a6a55', marginTop: 12, fontFamily: FONT_HAND }}>
+                7 training rounds · 5 test cases
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ============== CENTER PHOTO (Train + Test) ============== */}
+      {(phase === 'train' || phase === 'test') && current && (
+        <div style={{ position: 'absolute', left: '50%', top: '44%', transform: 'translate(-50%, -50%)', zIndex: 10 }}>
+          <motion.div key={`${phase}-${idx}`}
+                      initial={{ opacity: 0, scale: 0.88, rotate: -3 }}
+                      animate={{ opacity: 1, scale: 1, rotate: -1.5 }}
+                      style={{ background: POLA, padding: '14px 14px 46px 14px',
+                               boxShadow: '6px 12px 36px rgba(0,0,0,0.7)', position: 'relative' }}>
+            <Pin color={RED} style={{ top: 8, left: '50%', transform: 'translateX(-50%)' }} />
+            <Tape style={{ top: -10, left: 30, width: 80, transform: 'rotate(-8deg)' }} />
+            <Tape style={{ top: -10, right: 30, width: 80, transform: 'rotate(7deg)' }} />
+            <div ref={imageRef} onClick={handleImageClick}
+                 style={{ width: 460, height: 340, position: 'relative', overflow: 'hidden',
+                          cursor: 'crosshair', background: '#222' }}>
+              <ImageWithFallback src={current.url} alt="case" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {/* Heatmap during test */}
+              <AnimatePresence>
+                {showHeat && phase === 'test' && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.55 }} exit={{ opacity: 0 }}
+                              style={{ position: 'absolute', inset: 0, pointerEvents: 'none', mixBlendMode: 'screen',
+                                       background: current.evidence.map(ev =>
+                                         `radial-gradient(circle at ${ev.x}% ${ev.y}%, rgba(255,40,40,0.85) 0%, rgba(255,180,0,0.45) 16%, transparent 30%)`
+                                       ).join(', ') }} />
+                )}
+              </AnimatePresence>
+              {stickies.map(n => (
+                <Pin key={`p-${n.id}`} color={n.kind === 'player' ? RED : NAVY}
+                     style={{ left: `${n.imgX}%`, top: `${n.imgY}%`, transform: 'translate(-50%, -50%)' }} />
+              ))}
+            </div>
+            <div style={{ position: 'absolute', bottom: 12, left: 18, fontFamily: FONT_HAND, fontSize: 14, color: '#3a2a18', fontWeight: 700 }}>
+              {phase === 'train' ? `TRAINING SAMPLE #${idx + 1}` : `TEST PHOTO #${idx + 1}`}
+            </div>
+            <div style={{ position: 'absolute', bottom: 12, right: 18, fontFamily: FONT, fontSize: 11, color: '#5a3e20', letterSpacing: '0.2em' }}>
+              {phase === 'train' && playerGuess ? `LABEL: ${playerGuess.toUpperCase()}` : ''}
+              {phase === 'test' && petAnswered && current.petGuess ? `PRED: ${current.petGuess.klass.toUpperCase()}` : ''}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Sticky notes flanking the photo */}
+      {(phase === 'train' || phase === 'test') && (
+        <>
+          <div style={{ position: 'absolute', left: 200, top: 110, width: 210, zIndex: 10,
+                        display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <AnimatePresence>
+              {stickies.filter(s => s.side === 'L').map((n, i) => (
+                <StickyNote key={n.id} note={n} index={i} refCb={el => { stickyRefs.current[n.id] = el; }} />
+              ))}
+            </AnimatePresence>
+          </div>
+          <div style={{ position: 'absolute', right: 200, top: 110, width: 210, zIndex: 10,
+                        display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
+            <AnimatePresence>
+              {stickies.filter(s => s.side === 'R').map((n, i) => (
+                <StickyNote key={n.id} note={n} index={i} refCb={el => { stickyRefs.current[n.id] = el; }} />
+              ))}
+            </AnimatePresence>
+          </div>
+        </>
+      )}
+
+      {/* ============== TRAINING CONTROLS ============== */}
+      {phase === 'train' && current && (
+        <div style={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 22,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div style={{ background: 'rgba(20,15,10,0.92)', border: '1px solid #5a3e20',
+                        padding: '8px 18px', color: POLA, fontSize: 13, fontWeight: 900, letterSpacing: '0.2em' }}>
+            {!playerGuess ? 'WHERE WAS THIS TAKEN?' : `MARK ${current.evidence.length} EVIDENCE POINTS · ${markedIds.length}/${current.evidence.length}`}
+          </div>
+          {!playerGuess ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {CLASSES.map(k => (
+                <motion.button key={k} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                               onClick={() => submitGuess(k)}
+                               style={countryBtn}>{k}</motion.button>
+              ))}
+            </div>
+          ) : (
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                           disabled={markedIds.length < current.evidence.length}
+                           onClick={nextTrain}
+                           style={{ ...nextBtn, opacity: markedIds.length < current.evidence.length ? 0.5 : 1,
+                                    cursor: markedIds.length < current.evidence.length ? 'not-allowed' : 'pointer' }}>
+              {idx + 1 < trainTotal ? 'NEXT TRAINING ▶' : 'START TESTING ▶'}
+            </motion.button>
           )}
-        </AnimatePresence>
+        </div>
+      )}
 
-        {phase === 'test' && (
-          <div style={{ padding:'20px 24px 40px' }}>
-            <motion.div initial={{ opacity:0, y:-12 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.2 }}
-              style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18, background:POLA, padding:'12px 24px', borderRadius:2, transform:'rotate(-0.5deg)', boxShadow:'3px 5px 16px rgba(0,0,0,0.5)', position:'relative' }}>
-              <RealisticPin color={RED} style={{ position:'absolute', top:8, left:10 }} />
-              <div style={{ marginLeft:16 }}>
-                <div style={{ fontSize:11, color:RED, letterSpacing:'0.18em', fontWeight:900 }}>EVIDENCE MODE — CLASSIFICATION</div>
-                <div style={{ fontSize:32, fontWeight:900, color:'#1a1a1a', letterSpacing:'-0.02em' }}>
-                  {isWinnerStage ? (selectedCountry ? `${selectedCountry.toUpperCase()} CONFIRMED` : 'SECTOR IDENTIFIED') : 'ANALYZING...'}
-                </div>
+      {/* ============== TEST CONTROLS ============== */}
+      {phase === 'test' && petAnswered && (
+        <div style={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 22,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                      style={{ background: POLA, border: `4px double ${current.petGuess?.klass === current.truth ? '#2a5a2a' : RED}`,
+                               padding: '10px 22px', boxShadow: '0 8px 20px rgba(0,0,0,0.55)',
+                               transform: 'rotate(-2deg)' }}>
+            <div style={{ fontSize: 9, letterSpacing: '0.4em', color: '#7a3a2a', fontWeight: 900 }}>PET PREDICTION</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: '#2a1a08', letterSpacing: '0.15em' }}>
+              {current.petGuess?.klass.toUpperCase()} · {((current.petGuess?.conf ?? 0) * 100).toFixed(0)}% · {current.petGuess?.klass === current.truth ? '✓' : '✗'}
+            </div>
+          </motion.div>
+          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                         onClick={nextTest} style={nextBtn}>
+            {idx + 1 < testTotal ? 'NEXT TEST ▶' : 'CLOSE CASE ▶'}
+          </motion.button>
+        </div>
+      )}
+
+      {/* ============== PET NOTEPAD (right) ============== */}
+      <Notepad pad={pad} phase={phase} />
+
+      {/* ============== DONE ============== */}
+      <AnimatePresence>
+        {phase === 'done' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                      className="absolute inset-0 z-40 flex items-center justify-center"
+                      style={{ background: 'rgba(10,7,5,0.85)' }}>
+            <div style={{ background: POLA, padding: '32px 48px', border: `4px double ${RED}`, transform: 'rotate(-1deg)' }}>
+              <div style={{ fontSize: 12, color: RED, letterSpacing: '0.4em', fontWeight: 900 }}>FINAL REPORT</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: '#2a1a08', letterSpacing: '0.15em', marginTop: 6 }}>
+                CASE CLOSED
               </div>
-              {testStage === 'annotate' && (
-                <motion.button initial={{ opacity:0 }} animate={{ opacity:1 }} whileHover={{ scale:1.05 }} whileTap={{ scale:0.95 }} onClick={() => nav('/hub')}
-                  style={{ background: '#1a1a1a', color:'#f5ede0', border:'none', padding:'8px 24px', borderRadius:3, fontSize:14, fontWeight:900, letterSpacing:'0.1em', cursor:'pointer', fontFamily:FONT, boxShadow:'0 4px 12px rgba(0,0,0,0.4)' }}>
-                  RETURN TO HUB →
-                </motion.button>
-              )}
-            </motion.div>
+              <button onClick={() => nav('/hub')}
+                      style={{ marginTop: 16, background: '#2a1a08', color: POLA, border: 'none',
+                               padding: '10px 24px', fontFamily: FONT, fontWeight: 900,
+                               letterSpacing: '0.2em', cursor: 'pointer' }}>RETURN TO HUB</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:20 }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-                {/* EXHIBIT */}
-                <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.4 }}
-                  style={{ background:'#1a1a1a', border:`6px solid #2a1a08`, borderRadius:4, overflow:'hidden', boxShadow:'0 8px 24px rgba(0,0,0,0.6)', position:'relative' }}>
-                  <div style={{ position:'absolute', top:-12, left:'50%', transform:'translateX(-50%)', background:RED, color:'#fff', padding:'3px 14px', fontSize:10, fontWeight:900, letterSpacing:'0.18em', zIndex:2 }}>
-                    ATTENTION MAP
-                  </div>
-                  <div style={{ position:'relative', overflow:'hidden' }}>
-                    <img src={reveal.url} style={{ width:'100%', height:300, objectFit:'cover', display:'block', filter: testStage === 'fight' ? 'brightness(0.6)' : 'brightness(1)', transition:'filter 0.8s' }} />
-                    
-                    {/* The Fight Animation */}
-                    <AnimatePresence>
-                      {(testStage === 'fight') && (
-                        <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'space-around', padding:'0 20px' }}>
-                          <motion.div animate={{ x:[0, 20, -8, 12, 0], rotate:[-2, 4, -3, 2, 0] }} transition={{ duration:1.5, repeat:1 }}>
-                            {activePokemon && <img src={getSpriteUrl(activePokemon.id)} style={{ width:100, height:100, filter:'drop-shadow(0 0 20px rgba(255,255,255,0.4))', imageRendering:'pixelated' }} />}
-                          </motion.div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* The Stamp Slam */}
-                    {isWinnerStage && (
-                      <motion.div initial={{ scale: 3, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12, stiffness: 200 }}
-                        style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%) rotate(-15deg)', border: '8px solid #D32F2F', color: '#D32F2F', padding: '12px 32px', fontSize: 38, fontWeight: 900, letterSpacing: '0.15em', textShadow: '0 0 6px rgba(211,47,47,0.5)', boxShadow: '0 0 15px rgba(211,47,47,0.3)', background: 'rgba(255,255,255,0.9)', zIndex: 10, pointerEvents: 'none' }}>
-                        {selectedCountry ? `CONFIRMED: ${selectedCountry.toUpperCase()}` : 'CONFIRMED'}
-                      </motion.div>
-                    )}
-
-                    {/* The Heatmap and Markers */}
-                    <AnimatePresence>
-                      {(testStage === 'annotate') && (
-                        <>
-                          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 0.65 }} style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 60% 40%, rgba(255,0,0,0.8) 0%, rgba(255,255,0,0.5) 40%, transparent 80%)', mixBlendMode: 'multiply' }} />
-                          {reveal.probeTargets.map((pt, i) => (
-                            <motion.div key={i} initial={{ scale:0, opacity:0 }} animate={{ scale:1, opacity:1 }} transition={{ delay: i * 0.15, type:'spring' }}
-                              style={{ position:'absolute', left:`${pt.x}%`, top:`${pt.y}%`, transform:'translate(-50%,-50%)', width:20, height:20, borderRadius:'50%', border:'2.5px solid #E53935', boxShadow:'0 0 8px rgba(229,57,53,0.8)' }}>
-                              <div style={{ position:'absolute', top:-14, left:'50%', transform:'translateX(-50%)', fontSize:7, color:'#fff', fontWeight:900, whiteSpace:'nowrap', background:'rgba(0,0,0,0.7)', padding:'1px 4px', borderRadius:2 }}>{pt.label}</div>
-                            </motion.div>
-                          ))}
-                        </>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
+      {/* ============== PET (anchored bottom-left) ============== */}
+      <div style={{ position: 'absolute', bottom: 18, left: 18, zIndex: 35,
+                    display: 'flex', alignItems: 'flex-end', gap: 14, maxWidth: 400 }}>
+        {activePokemon && (
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <Tape style={{ top: -8, left: '50%', transform: 'translateX(-50%) rotate(-4deg)', width: 70 }} />
+            <div style={{ background: POLA, padding: '8px 8px 18px 8px',
+                          boxShadow: '0 8px 20px rgba(0,0,0,0.7)', transform: 'rotate(-3deg)' }}>
+              <img src={getSpriteUrl(activePokemon.id)}
+                   style={{ width: 92, height: 92, imageRendering: 'pixelated', display: 'block' }} />
+              <div style={{ fontFamily: FONT_HAND, fontSize: 11, color: '#2a1a08', textAlign: 'center', marginTop: 2, fontWeight: 700 }}>
+                DET. {activePokemon.name?.toUpperCase?.() || 'PARTNER'}
               </div>
-
-              {/* RATIONALE PAPER */}
-              {testStage === 'annotate' && (
-                <motion.div initial={{ opacity:0, x:50, rotate: 10 }} animate={{ opacity:1, x:0, rotate: 2 }} transition={{ type:'spring', damping:15, delay:0.4 }}
-                  style={{ background: '#f5ede0', border:`1px solid #d4c4b4`, padding:'20px', boxShadow:'4px 8px 24px rgba(0,0,0,0.5)', position:'relative', display:'flex', flexDirection:'column' }}>
-                  <RealisticPin color="#1565C0" style={{ top:10, right:10 }} />
-                  <div style={{ fontSize:18, fontWeight:900, color:'#2a1a0a', letterSpacing:'0.15em', borderBottom:`2px solid #333`, paddingBottom:8, marginBottom:16 }}>
-                    CLASSIFICATION RATIONALE
-                  </div>
-                  
-                  {/* Probabilities */}
-                  <div style={{ marginBottom: 20, display:'flex', flexDirection:'column', gap:6 }}>
-                    <div style={{ fontSize: 13, fontWeight: 900, color: '#555' }}>PREDICTIONS</div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <div style={{ width:70, fontSize:12, fontWeight:'bold' }}>{selectedCountry || 'France'}</div>
-                      <div style={{ flex:1, height:10, background:'#ddd', borderRadius:5, overflow:'hidden' }}>
-                        <motion.div initial={{ width:0 }} animate={{ width:'88%' }} style={{ height:'100%', background:'#2E7D32' }} />
-                      </div>
-                      <div style={{ fontSize:12, fontWeight:'bold' }}>88%</div>
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      <div style={{ width:70, fontSize:12, fontWeight:'bold' }}>Other</div>
-                      <div style={{ flex:1, height:10, background:'#ddd', borderRadius:5, overflow:'hidden' }}>
-                        <motion.div initial={{ width:0 }} animate={{ width:'12%' }} style={{ height:'100%', background:'#E53935' }} />
-                      </div>
-                      <div style={{ fontSize:12, fontWeight:'bold' }}>12%</div>
-                    </div>
-                  </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 900, color: '#555', marginBottom: 6 }}>PET NOTES</div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:8, flex:1, fontFamily: FONT_MARKER }}>
-                    {notes.map((n, i) => (
-                      <div key={i} style={{ fontSize:13, color:'#1E3A8A', lineHeight:1.4 }}>
-                        - {n}
-                      </div>
-                    ))}
-                    {notes.length === 0 && (
-                      <div style={{ fontSize:13, color:'#666', fontStyle:'italic' }}>No notes taken during evidence phase...</div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
             </div>
           </div>
         )}
-      </div>
-    );
-  }
-
-  // Render Phase 1 (Evidence Collection)
-  return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden" style={{ background: `linear-gradient(135deg, ${BG_DARK} 0%, ${BG_MID} 50%, ${BG_DARK} 100%)`, fontFamily: FONT }}>
-      <AnimatePresence>
-        {phase === 'intro' && <IntroOverlay pokemon={activePokemon} />}
-        {phase === 'dispatch' && <DispatchOverlay pokemon={activePokemon} annotations={annotations} />}
-        {phase === 'done' && <DoneOverlay />}
-      </AnimatePresence>
-
-      <div className="flex items-center justify-between px-4 py-1.5 z-10 shrink-0" style={{ background: 'rgba(15,8,3,0.5)', borderBottom: '1px solid rgba(255,255,255,0.06)', boxShadow: '0 3px 10px rgba(0,0,0,0.4)' }}>
-        <div className="flex items-center gap-3">
-          {activePokemon && (
-            <motion.div animate={{ opacity: pokemonFaded ? 0.2 : 1, scale: pokemonFaded ? 0.9 : 1 }} transition={{ duration: 0.3 }}
-              className="flex items-center gap-2 px-2.5 py-1 rounded shadow-md" style={{ background: POLA, transform:'rotate(-1deg)' }}>
-              <img src={getSpriteUrl(activePokemon.id)} className="w-8 h-8 object-contain" style={{ imageRendering:'pixelated' }} />
-              <div>
-                <div className="text-xs font-black text-gray-900 tracking-tight leading-none">{activePokemon.name}</div>
-                <div className="text-[9px] font-bold text-gray-500 leading-none mt-0.5">{arch.label}</div>
-              </div>
+        <AnimatePresence mode="wait">
+          {petMsg && (
+            <motion.div key={petMsg} initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5 }}
+                        style={{ background: POLA, padding: '10px 14px', borderRadius: 10,
+                                 borderBottomLeftRadius: 2, maxWidth: 260, marginBottom: 30,
+                                 boxShadow: '0 6px 18px rgba(0,0,0,0.55)', position: 'relative',
+                                 border: '1px solid #c8b696' }}>
+              <p style={{ margin: 0, fontFamily: FONT_HAND, fontSize: 13, lineHeight: 1.35, color: '#2a1a08', fontWeight: 700 }}>
+                {petMsg}
+              </p>
+              <div style={{ position: 'absolute', bottom: 8, left: -8, width: 0, height: 0,
+                            borderTop: '8px solid transparent', borderBottom: '8px solid transparent',
+                            borderRight: `10px solid ${POLA}` }} />
             </motion.div>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded shadow-md" style={{ background: POLA, transform:'rotate(1.5deg)' }}>
-            <span className="text-base">⏱</span>
-            <span className="text-xl font-black tracking-tight text-gray-900">
-              {String(Math.floor(time/60)).padStart(2,'0')}:{String(time%60).padStart(2,'0')}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 px-2 py-1 rounded shadow-md" style={{ background: STICKY_Y }}>
-            <span className="text-[9px] font-black text-gray-700">IMG {imageIdx+1}/{NUM_IMAGES}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-row relative min-h-0 overflow-hidden" style={{ gap:6, padding:'20px 24px 100px 24px', background: '#D4C09B', boxShadow: 'inset 0 0 80px rgba(0,0,0,0.6)', backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.05) 0%, transparent 10%, transparent 90%, rgba(0,0,0,0.05) 100%)' }}>
-        {/* Background folder texture */}
-        <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none', opacity:0.04 }}>
-          <filter id="folder-noise"><feTurbulence type="fractalNoise" baseFrequency="1.2" numOctaves="3" stitchTiles="stitch" result="n" /><feColorMatrix type="saturate" values="0" /></filter>
-          <rect width="100%" height="100%" filter="url(#folder-noise)" />
-        </svg>
-        <div style={{ position: 'absolute', top: 0, left: '50%', bottom: 0, width: 40, background: 'linear-gradient(to right, transparent, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.18) 50%, rgba(0,0,0,0.12) 60%, transparent)', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 0 }} />
-        
-        {/* Red String Board Props (Background) */}
-        <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
-          {/* Dispersed Notes */}
-          <div style={{ position: 'absolute', top: '5%', left: '25%', width: 110, height: 100, background: '#F9E97E', transform: 'rotate(-10deg)', boxShadow: '2px 4px 12px rgba(0,0,0,0.3)', padding: 10, fontSize: 8, color: '#5a3e20' }}>
-            <div style={{ borderBottom: '1px solid rgba(0,0,0,0.15)', paddingBottom: 4, marginBottom: 4, fontWeight: 900 }}>OBSERVATION</div>
-            Target pattern shows recurring loops. Look closely at the edges!
-          </div>
-          
-          {/* Polaroid with thumbprint */}
-          <div style={{ position: 'absolute', top: '12%', right: '28%', width: 140, height: 160, background: '#f5ede0', padding: '8px 8px 30px 8px', transform: 'rotate(15deg)', boxShadow: '3px 6px 15px rgba(0,0,0,0.4)' }}>
-            <div style={{ width: '100%', height: '100%', background: '#222', overflow: 'hidden', position: 'relative' }}>
-              <ImageWithFallback src="https://images.unsplash.com/photo-1600176970141-60a670821dfd?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080" alt="polaroid" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(100%) contrast(1.2)' }} />
-              <ImageWithFallback src="https://images.unsplash.com/photo-1611330500121-d9439ddc3d9d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080" alt="thumbprint" style={{ position: 'absolute', bottom: -20, right: -20, width: 80, height: 80, mixBlendMode: 'multiply', opacity: 0.65, transform: 'rotate(-30deg)' }} />
-            </div>
-            <div style={{ position: 'absolute', bottom: 8, left: 10, fontSize: 10, fontWeight: 900, color: '#111', transform: 'rotate(-2deg)' }}>SUSPECT</div>
-            <Paperclip angle={10} style={{ top: -10, left: 20 }} />
-          </div>
-
-          {/* Generic Polaroid pinned */}
-          <div style={{ position: 'absolute', bottom: '35%', left: '20%', width: 110, height: 130, background: '#f5ede0', padding: '6px 6px 24px 6px', transform: 'rotate(-6deg)', boxShadow: '2px 5px 12px rgba(0,0,0,0.4)' }}>
-            <RealisticPin color="#F9A825" style={{ top: 4, left: '50%', transform: 'translateX(-50%)' }} />
-            <div style={{ width: '100%', height: '100%', background: '#222', overflow: 'hidden' }}>
-              <ImageWithFallback src="https://images.unsplash.com/photo-1639617004859-e9713f75af0b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080" alt="generic location" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'sepia(0.4) contrast(1.2)' }} />
-            </div>
-            <div style={{ position: 'absolute', bottom: 6, left: 8, fontSize: 8, color: '#555', fontWeight: 900 }}>SECTOR 7</div>
-          </div>
-
-          {/* Red Strings connecting props */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
-             <path d="M 350 200 Q 500 250 650 150" fill="none" stroke="#D32F2F" strokeWidth="2.5" strokeDasharray="4 2" style={{ filter: 'drop-shadow(1px 2px 2px rgba(0,0,0,0.5))' }} />
-             <path d="M 350 500 Q 450 450 600 350" fill="none" stroke="#D32F2F" strokeWidth="2.5" strokeDasharray="4 2" style={{ filter: 'drop-shadow(1px 2px 2px rgba(0,0,0,0.5))' }} />
-          </svg>
-        </div>
-
-        {/* Left Column - Tools & Rivals */}
-        <div style={{ width:140, minWidth:140, display:'flex', flexDirection:'column', gap:10, zIndex: 10 }}>
-          {/* Tools Block */}
-          <div style={{ background: STICKY_Y, padding:'8px 8px 6px', borderRadius:2, boxShadow:'2px 3px 8px rgba(0,0,0,0.3), inset 0 -1px 4px rgba(0,0,0,0.05)', transform:'rotate(-1.5deg)', position:'relative', flexShrink:0 }}>
-            <RealisticPin color="#1565C0" />
-            <div style={{ fontSize:8, fontWeight:900, letterSpacing:'0.2em', color:'#2a1a08', textAlign:'center', marginTop:6, borderBottom:'1px dashed rgba(0,0,0,0.15)', paddingBottom:4, marginBottom:6 }}>
-              {selectedCountry ? `${selectedCountry.toUpperCase()} TOOLS` : 'SELECT CASE FILE'}
-            </div>
-            {selectedCountry ? (
-              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                {Q_TOOLS.map((tool, i) => {
-                  const isActive = qIdx === i;
-                  return (
-                    <motion.div key={i} layout onClick={() => setQIdx(i as 0|1|2)} animate={{ scale: isActive ? 1.02 : 1 }}
-                      style={{ background: Q_COLORS[i], borderRadius:2, padding: '7px 8px', cursor:'pointer', position:'relative', boxShadow: isActive ? '0 3px 8px rgba(0,0,0,0.25)' : '0 1px 4px rgba(0,0,0,0.15)', border: isActive ? '2px solid rgba(0,0,0,0.2)' : '1px solid rgba(0,0,0,0.1)', transform: `rotate(${i%2===0 ? -0.5 : 0.5}deg)` }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <span style={{ fontSize:8, fontWeight:900, color:'rgba(0,0,0,0.6)' }}>{Q_TOOL_LABELS[i]}</span>
-                        {isActive && <span style={{ width:5, height:5, borderRadius:'50%', background:'#C62828', display:'inline-block' }} />}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ fontSize:9, color:'rgba(0,0,0,0.5)', textAlign:'center', padding:'10px 0', fontWeight:'bold' }}>
-                Open a case file below to access evidence tools.
-              </div>
-            )}
-          </div>
-
-          {/* Rival Agencies */}
-          <div style={{ background: POLA, borderRadius:2, padding:'7px 8px', boxShadow:'2px 3px 8px rgba(0,0,0,0.3)', transform:'rotate(0.8deg)', position:'relative', flex:1, overflow:'hidden' }}>
-            <RealisticPin color="#E53935" />
-            <div style={{ fontSize:8, fontWeight:900, letterSpacing:'0.15em', color:'#1a1a1a', textAlign:'center', marginTop:6, borderBottom:'1px dashed rgba(0,0,0,0.15)', paddingBottom:4, marginBottom:5 }}>
-              RIVAL AGENCIES
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-              {opponents.map(o => (
-                <div key={o.name} style={{ display:'flex', flexDirection:'column', gap:1.5 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:7, fontWeight:900, color: o.color, maxWidth:70, overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis' }}>
-                      {o.name.split('_')[0]}
-                    </span>
-                    <span style={{ fontSize:7, fontWeight:700, color:'#555' }}>{Math.round(o.progress)}%</span>
-                  </div>
-                  <div style={{ height:3, background:'#ddd', borderRadius:2, overflow:'hidden' }}>
-                    <motion.div animate={{ width:`${o.progress}%` }} style={{ height:'100%', background: o.color, borderRadius:2 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Center - Image Canvas */}
-        <div className="flex-1 flex flex-col min-w-0 relative z-10" style={{ alignItems:'center', justifyContent: 'center' }}>
-          <motion.div className="w-full relative flex flex-col shadow-2xl"
-            style={{ background: POLA, padding:'6px 6px 40px 6px', maxWidth: 480, maxHeight: 480, aspectRatio: '1/1', flex:1, transform:`rotate(${imageIdx % 2 === 0 ? '-0.8deg' : '0.8deg'})`, boxShadow:'0 16px 40px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4)', borderRadius:2 }}>
-            <RealisticPin color="#E53935" style={{ position:'absolute', top:4, left:'50%', transform:'translateX(-50%)' }} />
-            <RealisticPin color="#F9A825" style={{ position:'absolute', top:4, left:16 }} />
-            <RealisticPin color="#1565C0" style={{ position:'absolute', top:4, right:16 }} />
-
-            <div ref={canvasRef} onClick={handleCanvasClick} onMouseDown={handleSweepStart} onMouseMove={handleSweepMove} onMouseUp={handleSweepEnd}
-              style={{ flex:1, width:'100%', position:'relative', background:'#111', overflow:'hidden', cursor: activeTool === 'lasso' ? 'crosshair' : 'cell', boxShadow:'inset 0 0 16px rgba(0,0,0,0.5)', minHeight:0 }}>
-              <img src={image.url} style={{ width:'100%', height:'100%', objectFit:'cover', pointerEvents:'none', display:'block' }} />
-
-              {annotations.map((a, i) => {
-                const c = a.qIdx === 0 ? '#E53935' : a.qIdx === 1 ? '#1565C0' : '#2E7D32';
-                if (a.mode === 'probe' || a.mode === 'scan') {
-                  return (
-                    <div key={i} style={{ position:'absolute', left:`${a.x}%`, top:`${a.y}%`, transform:'translate(-50%,-50%)', width:24, height:24, borderRadius:'50%', border:`3px solid ${c}`, boxShadow:`0 0 6px ${c}88`, pointerEvents:'none', opacity:0.9 }} />
-                  );
-                }
-                return (
-                  <div key={i} style={{ position:'absolute', left:`${a.w && a.w < 0 ? a.x + a.w : a.x}%`, top:`${a.h && a.h < 0 ? a.y + a.h : a.y}%`, width:`${Math.abs(a.w||0)}%`, height:`${Math.abs(a.h||0)}%`, border:`2px dashed ${c}`, background:`${c}18`, pointerEvents:'none', boxShadow:`0 0 8px ${c}44`, borderRadius:2 }} />
-                );
-              })}
-
-              {sweepDrag && (
-                <div style={{ position:'absolute', left:`${sweepDrag.w < 0 ? sweepDrag.x + sweepDrag.w : sweepDrag.x}%`, top:`${sweepDrag.h < 0 ? sweepDrag.y + sweepDrag.h : sweepDrag.y}%`, width:`${Math.abs(sweepDrag.w)}%`, height:`${Math.abs(sweepDrag.h)}%`, border:`2px dashed #1565C0`, background:'rgba(21,101,192,0.15)', pointerEvents:'none', borderRadius:2 }} />
-              )}
-
-              {activePokemon && phase === 'playing' && (
-                <ActivePetGuide pokemonId={activePokemon.id} pokemonName={activePokemon.name} architecture={activePokemon.architecture} canvasRect={canvasRect} lastClickPos={lastClickPos} onAnnotation={lastAnnotationTime} trustScore={80} />
-              )}
-            </div>
-
-            {/* Next Button / Bottom Label */}
-            <div style={{ position:'absolute', bottom:4, left:10, right:10, display:'flex', justifyContent:'space-between', alignItems:'center', zIndex: 20 }}>
-              <div style={{ fontFamily:FONT, fontSize:12, fontWeight:900, color:'#555', letterSpacing:'0.03em' }}>
-                Case #{imageIdx+1} — EVIDENCE SCAN
-              </div>
-              <motion.button whileHover={{ scale:1.08 }} whileTap={{ scale:0.94 }} onClick={nextImage}
-                style={{ background: '#1a1a1a', color:'#f5ede0', border:'none', padding:'4px 14px', borderRadius:3, fontSize:11, fontWeight:900, letterSpacing:'0.12em', cursor:'pointer', fontFamily:FONT, boxShadow:'0 2px 6px rgba(0,0,0,0.4)', pointerEvents:'auto' }}>
-                NEXT →
-              </motion.button>
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Right Column - Detective Notes (Yellow Legal Pad) */}
-        <div style={{ width:240, minWidth:200, display:'flex', flexDirection:'column', gap:6, zIndex: 10 }}>
-          <motion.div 
-            style={{ 
-              flex:1, background: '#FDF08A', boxShadow: '4px 8px 24px rgba(0,0,0,0.6)', borderRadius: '2px 12px 12px 2px',
-              position: 'relative', overflow: 'hidden', transform: 'rotate(1deg)'
-            }}
-          >
-            {/* Legal pad top binding */}
-            <div style={{ width: '100%', height: 30, background: '#7F1D1D', borderBottom: '2px solid #450A0A' }} />
-            <div style={{ position: 'absolute', top: 0, left: 30, width: 2, height: '100%', background: '#EF4444', opacity: 0.4 }} />
-            
-            {/* Lines */}
-            <div style={{ position: 'absolute', top: 30, left: 0, width: '100%', height: 'calc(100% - 30px)', pointerEvents: 'none', backgroundImage: 'linear-gradient(transparent 95%, rgba(0,0,0,0.1) 95%)', backgroundSize: '100% 24px' }} />
-            
-            <div style={{ padding: '16px 16px 16px 40px', position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom: '2px solid #ccc', paddingBottom: 6, marginBottom: 12 }}>
-                <h2 style={{ fontFamily: FONT_MARKER, margin: 0, fontSize: 18, color: '#333' }}>
-                  Detective's Log
-                </h2>
-                {activePokemon && (
-                  <img src={getSpriteUrl(activePokemon.id)} style={{ width:24, height:24, imageRendering:'pixelated' }} />
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto', flex: 1, paddingRight: 4 }}>
-                <AnimatePresence>
-                  {notes.map((note, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-                      style={{ fontFamily: FONT_MARKER, fontSize: 13, color: '#1E3A8A', lineHeight: 1.3 }}>
-                      - {note}
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                {notes.length === 0 && (
-                  <div style={{ fontFamily: FONT_MARKER, fontSize: 13, color: '#888', fontStyle: 'italic', marginTop: 10 }}>
-                    Select a case file below, then use tools to log evidence...
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <RealisticPin color="#111" style={{ top: 8, left: '50%', transform: 'translateX(-50%)' }} />
-          </motion.div>
-        </div>
-      </div>
-
-      {/* BOTTOM CASE FILES (Smaller and lower to not block the Next button) */}
-      <div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 30, display: 'flex', gap: 12, alignItems: 'flex-end', pointerEvents: 'none' }}>
-        {COUNTRIES.map((country) => {
-          const isSelected = selectedCountry === country;
-          return (
-            <motion.div key={country} onClick={() => setSelectedCountry(country)} animate={{ y: isSelected ? -10 : 0 }} whileHover={{ y: isSelected ? -10 : -4 }}
-              style={{ width: 100, height: 75, background: isSelected ? MANILLA : MANILLA_DK, borderRadius: '4px 12px 0 0', cursor: 'pointer', border: `1px solid ${MANILLA_DK}`, borderBottom: 'none', boxShadow: isSelected ? '0 -4px 16px rgba(0,0,0,0.5)' : '0 -2px 8px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, position: 'relative', pointerEvents: 'auto', zIndex: isSelected ? 40 : 35 }}>
-              <div style={{ position: 'absolute', top: -14, left: 6, background: isSelected ? MANILLA : MANILLA_DK, padding: '2px 10px', borderRadius: '4px 4px 0 0', border: `1px solid ${MANILLA_DK}`, borderBottom: 'none', fontSize: 7, fontWeight: 'bold', color: '#444' }}>
-                CASE FILE
-              </div>
-              <div style={{ fontFamily: FONT, fontSize: 11, fontWeight: 900, color: '#1a1a1a', border: '1.5px dashed rgba(0,0,0,0.2)', padding: '4px 8px', transform: 'rotate(-2deg)' }}>
-                {country.toUpperCase()}
-              </div>
-            </motion.div>
-          );
-        })}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-function RealisticPin({ color, style }: { color: string; style?: React.CSSProperties }) {
+// ================== sub-components ==================
+
+function Notepad({ pad, phase }: { pad: PadEntry[]; phase: Phase }) {
   return (
-    <div style={{ position:'absolute', width:14, height:14, borderRadius:'50%', zIndex:10, background:`radial-gradient(circle at 35% 30%, #fff 0%, ${color} 35%, rgba(0,0,0,0.5) 100%)`, boxShadow:`0 2px 5px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.15)`, ...style }}>
-      <div style={{ position:'absolute', top:'90%', left:'50%', transform:'translateX(-50%)', width:2, height:5, background:'#999' }} />
+    <div style={{ position: 'absolute', right: 24, top: 110, width: 200, zIndex: 8,
+                  transform: 'rotate(2deg)' }}>
+      <Tape style={{ top: -8, left: '50%', transform: 'translateX(-50%) rotate(3deg)', width: 60 }} />
+      <div style={{ background: PAPER, padding: 12, paddingTop: 18, minHeight: 280, maxHeight: 380, overflow: 'hidden',
+                    backgroundImage: 'repeating-linear-gradient(180deg, transparent 0, transparent 19px, rgba(40,80,150,0.18) 19px, rgba(40,80,150,0.18) 20px)',
+                    borderLeft: `3px solid ${RED}80`,
+                    boxShadow: '0 8px 22px rgba(0,0,0,0.55)' }}>
+        <div style={{ fontFamily: FONT, fontSize: 9, letterSpacing: '0.3em', color: '#7a3a2a', fontWeight: 900, marginBottom: 6 }}>
+          PET NOTEPAD
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <AnimatePresence>
+            {pad.slice(-10).map(e => (
+              <motion.div key={e.id} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
+                <p style={{ margin: 0, fontFamily: FONT_HAND, fontSize: 11.5, color: '#1a3060', lineHeight: 1.4, fontWeight: 700 }}>
+                  • {e.text}
+                </p>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          {pad.length === 0 && (
+            <p style={{ margin: 0, fontFamily: FONT_HAND, fontSize: 11, color: '#7a6a55', fontStyle: 'italic' }}>
+              (notes will appear as Boss marks evidence...)
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function Paperclip({ angle = 0, style }: { angle?: number; style?: React.CSSProperties }) {
+function StickyNote({ note, refCb, index }: { note: StickyData; refCb: (el: HTMLDivElement | null) => void; index: number }) {
+  const isPlayer = note.kind === 'player';
+  const bg = isPlayer ? STICKY_Y : STICKY_B;
+  const rot = (index % 2 === 0 ? -1 : 1) * (2 + (index % 3));
   return (
-    <div style={{ position:'absolute', width:12, height:38, border:'2.5px solid #d4d4d4', borderRadius:6, borderBottomRightRadius:4, borderBottomLeftRadius:4, zIndex:15, boxShadow:'2px 4px 6px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.8)', transform:`rotate(${angle}deg)`, ...style }} />
-  );
-}
-
-function IntroOverlay({ pokemon }: { pokemon: any }) {
-  return (
-    <motion.div initial={{ opacity:1 }} exit={{ opacity:0 }} transition={{ duration:0.7 }} className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center" style={{ fontFamily:FONT, perspective:1000 }}>
-      <motion.div initial={{ scale:0.8, rotateX:40, y:40 }} animate={{ scale:1, rotateX:0, y:0 }} transition={{ type:'spring', damping:20, stiffness:100 }}
-        className="relative flex flex-col items-center justify-center" style={{ width:480, height:320, background:`linear-gradient(160deg, #d4b895 0%, #c4a87a 100%)`, borderRadius:4, boxShadow:'0 24px 60px rgba(0,0,0,0.8)', border:'1px solid #b39b7d' }}>
-        <div className="absolute inset-3 border border-dashed" style={{ borderColor:'rgba(100,60,30,0.25)' }} />
-        {pokemon && <img src={getSpriteUrl(pokemon.id)} className="w-28 h-28 z-10" style={{ imageRendering:'pixelated', filter:'drop-shadow(0 4px 12px rgba(0,0,0,0.6))' }} />}
-        <div className="text-xl font-black text-amber-950 mt-4 tracking-widest z-10" style={{ fontFamily:FONT }}>EVIDENCE MODE INITIATED</div>
-        {pokemon && <div className="text-sm font-bold text-amber-900 mt-1 z-10" style={{ fontFamily:FONT }}>LEAD DETECTIVE: {pokemon.name.toUpperCase()}</div>}
-      </motion.div>
+    <motion.div ref={refCb}
+                initial={{ opacity: 0, y: -16, rotate: 0 }}
+                animate={{ opacity: 1, y: 0, rotate: rot }}
+                exit={{ opacity: 0 }}
+                style={{ background: bg, padding: '12px 14px 14px', width: 190,
+                         boxShadow: '3px 5px 14px rgba(0,0,0,0.45)', position: 'relative',
+                         clipPath: 'polygon(0 0, 100% 0, 100% 92%, 96% 100%, 0 100%)' }}>
+      <Pin color={isPlayer ? RED : NAVY} style={{ top: 4, left: '50%', transform: 'translateX(-50%)' }} />
+      <div style={{ fontSize: 9, letterSpacing: '0.25em', color: isPlayer ? '#7a3a2a' : '#1a3a5c',
+                    fontWeight: 900, marginTop: 8, marginBottom: 4 }}>
+        {isPlayer ? 'BOSS NOTE' : 'PET ANALYSIS'}
+      </div>
+      <p style={{ margin: 0, fontFamily: FONT_HAND, fontSize: 12.5, color: '#2a1a08', lineHeight: 1.35, fontWeight: 700 }}>
+        {note.text}
+      </p>
     </motion.div>
   );
 }
 
-function DispatchOverlay({ pokemon, annotations }: { pokemon: any; annotations: Annotation[] }) {
+function Pin({ color, style }: { color: string; style?: React.CSSProperties }) {
+  return <div style={{ position: 'absolute', width: 14, height: 14, borderRadius: '50%', zIndex: 12,
+                       background: `radial-gradient(circle at 32% 28%, #fff 0%, ${color} 38%, rgba(0,0,0,0.55) 100%)`,
+                       boxShadow: '0 2px 4px rgba(0,0,0,0.55), inset 0 -1px 1px rgba(0,0,0,0.3)', ...style }} />;
+}
+
+function Tape({ style }: { style?: React.CSSProperties }) {
+  return <div style={{ position: 'absolute', height: 18, width: 60,
+                       background: 'rgba(255,250,210,0.5)',
+                       border: '1px solid rgba(180,160,90,0.3)',
+                       boxShadow: '0 2px 4px rgba(0,0,0,0.3)', zIndex: 11, ...style }} />;
+}
+
+function CornerProp({ src, style, caption }: { src: string; style: React.CSSProperties; caption: string }) {
   return (
-    <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} transition={{ duration:0.5 }} className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center flex-col" style={{ fontFamily:FONT }}>
-      <motion.div initial={{ scale:1 }} animate={{ scale:0.85, y:-40 }} transition={{ delay:0.8, type:'spring', damping:20 }}
-        style={{ width:480, height:300, background:'#d4b895', borderRadius:4, position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', border:'1px solid #b39b7d', boxShadow:'0 20px 50px rgba(0,0,0,0.7)' }}>
-        <div style={{ fontSize:13, fontWeight:900, color:'#3a2a1a', letterSpacing:'0.2em', fontFamily:FONT }}>EVIDENCE SUBMITTED</div>
-        <div style={{ fontSize:36, fontWeight:900, color:'#1a0f05', marginTop:8, letterSpacing:'-0.02em', fontFamily:FONT }}>
-          {annotations.length} MARKS
+    <div style={{ position: 'absolute', zIndex: 4, ...style }}>
+      <Pin color="#8a8a8a" style={{ top: -4, left: '50%', transform: 'translateX(-50%)' }} />
+      <div style={{ background: POLA, padding: 5, paddingBottom: 16, boxShadow: '0 6px 14px rgba(0,0,0,0.6)', height: '100%' }}>
+        <ImageWithFallback src={src} alt={caption}
+                           style={{ width: '100%', height: 'calc(100% - 21px)', objectFit: 'cover', display: 'block',
+                                    filter: 'sepia(0.4) contrast(1.05) brightness(0.9)' }} />
+        <div style={{ position: 'absolute', bottom: 2, left: 8, fontFamily: FONT_HAND, fontSize: 10, color: '#2a1a08', fontWeight: 700 }}>
+          {caption}
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
-function DoneOverlay() {
+function ManilaFolder({ style }: { style?: React.CSSProperties }) {
   return (
-    <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" style={{ fontFamily:FONT }}>
-      <div style={{ fontSize:18, fontWeight:900, color:'#f5ede0', letterSpacing:'0.3em' }}>TRANSFERRING TO TEST ARENA...</div>
-    </motion.div>
+    <div style={{ position: 'absolute', width: 180, height: 220, zIndex: 3, ...style }}>
+      <div style={{ position: 'absolute', top: -14, left: 14, width: 70, height: 18,
+                    background: '#D8B97A', borderRadius: '3px 3px 0 0',
+                    border: '1px solid #A88A4A', borderBottom: 'none' }} />
+      <div style={{ width: '100%', height: '100%', background: '#D8B97A',
+                    border: '1px solid #A88A4A', borderRadius: '2px 8px 6px 4px',
+                    boxShadow: '4px 6px 16px rgba(0,0,0,0.55)',
+                    backgroundImage: 'repeating-linear-gradient(180deg, transparent 0, transparent 22px, rgba(168,138,74,0.18) 22px, rgba(168,138,74,0.18) 23px)',
+                    transform: 'rotate(5deg)' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px dashed rgba(80,50,20,0.3)' }}>
+          <div style={{ fontSize: 9, letterSpacing: '0.3em', color: '#7a4a1a' }}>CONFIDENTIAL</div>
+          <div style={{ fontSize: 14, fontWeight: 900, color: '#3a2008', letterSpacing: '0.1em', marginTop: 2 }}>CASE FILES</div>
+        </div>
+        <div style={{ padding: '10px 16px', fontFamily: FONT_HAND, fontSize: 11, color: '#3a2008', lineHeight: 1.6 }}>
+          ▸ Senegal: lat. soil<br />▸ France: vines<br />▸ Japan: cedar<br />▸ Brazil: tile roofs
+        </div>
+      </div>
+    </div>
   );
 }
+
+function Newspaper({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 200, height: 130, zIndex: 3, transform: 'rotate(-5deg)', ...style }}>
+      <div style={{ width: '100%', height: '100%', background: '#e9e3d0',
+                    boxShadow: '4px 6px 14px rgba(0,0,0,0.55)', padding: 8,
+                    border: '1px solid #b4a685' }}>
+        <div style={{ fontFamily: '"Times New Roman", serif', fontSize: 14, fontWeight: 900,
+                      borderBottom: '2px solid #2a1a08', paddingBottom: 3, marginBottom: 4, color: '#2a1a08' }}>
+          THE DAILY LEDGER
+        </div>
+        <div style={{ fontFamily: '"Times New Roman", serif', fontSize: 9, color: '#3a2a18', lineHeight: 1.3 }}>
+          <strong>MYSTERY PHOTO STUMPS LOCALS</strong><br />
+          Authorities are seeking a sharp-eyed detective to assist in identifying a series of unmarked photographs...
+        </div>
+        <div style={{ marginTop: 4, height: 30, background: 'repeating-linear-gradient(90deg, #b4a685 0, #b4a685 2px, transparent 2px, transparent 5px)', opacity: 0.4 }} />
+      </div>
+    </div>
+  );
+}
+
+function MagnifyingGlass({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 90, height: 130, zIndex: 4, transform: 'rotate(35deg)', ...style }}>
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 70, height: 70, borderRadius: '50%',
+                    border: '5px solid #2a1a08', background: 'rgba(220,230,240,0.18)',
+                    boxShadow: 'inset 0 0 12px rgba(255,255,255,0.25), 0 4px 10px rgba(0,0,0,0.5)' }} />
+      <div style={{ position: 'absolute', top: 60, left: 60, width: 8, height: 60,
+                    background: 'linear-gradient(180deg, #2a1a08, #4a2e1a)', borderRadius: 3,
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.6)' }} />
+    </div>
+  );
+}
+
+function CoffeeStain({ style, small }: { style?: React.CSSProperties; small?: boolean }) {
+  const s = small ? 50 : 75;
+  return (
+    <div style={{ position: 'absolute', width: s, height: s, zIndex: 2, opacity: 0.55, pointerEvents: 'none', ...style }}>
+      <div style={{ width: '100%', height: '100%', borderRadius: '50%',
+                    background: 'radial-gradient(circle, rgba(80,40,15,0.0) 50%, rgba(80,40,15,0.55) 55%, rgba(80,40,15,0.2) 70%, transparent 80%)',
+                    transform: 'scaleY(0.9)' }} />
+    </div>
+  );
+}
+
+function Paperclip({ style }: { style?: React.CSSProperties }) {
+  return (
+    <svg width="34" height="60" viewBox="0 0 34 60" style={{ position: 'absolute', zIndex: 5, ...style }}>
+      <path d="M10 5 L10 45 Q10 55 17 55 Q24 55 24 45 L24 12 Q24 6 19 6 Q14 6 14 12 L14 42"
+            fill="none" stroke="#b0b0b8" strokeWidth="2.5" strokeLinecap="round"
+            style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))' }} />
+    </svg>
+  );
+}
+
+function Stamp({ style, text, tone }: { style?: React.CSSProperties; text: string; tone?: 'red' | 'navy' }) {
+  const c = tone === 'navy' ? NAVY : RED;
+  return (
+    <div style={{ position: 'absolute', zIndex: 6, padding: '4px 12px', border: `3px double ${c}`,
+                  fontFamily: FONT, fontWeight: 900, fontSize: 14, letterSpacing: '0.25em',
+                  color: c, opacity: 0.78, transform: 'rotate(-8deg)', textShadow: '0 0 1px rgba(0,0,0,0.2)',
+                  background: 'rgba(245,237,224,0.05)', ...style }}>
+      {text}
+    </div>
+  );
+}
+
+function Pencil({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 110, height: 12, zIndex: 4,
+                  filter: 'drop-shadow(2px 3px 4px rgba(0,0,0,0.55))', ...style }}>
+      <div style={{ width: 12, height: '100%', background: '#E8C8A0', float: 'left', borderRadius: '50% 0 0 50%' }} />
+      <div style={{ width: 8, height: '100%', background: '#444', float: 'left' }} />
+      <div style={{ width: 70, height: '100%', background: 'linear-gradient(180deg, #E8B43A, #C68F1F)', float: 'left',
+                    borderRight: '1px solid #8a5e10' }} />
+      <div style={{ width: 12, height: '100%', background: '#D49060', float: 'left',
+                    clipPath: 'polygon(0 0, 100% 50%, 0 100%)' }} />
+      <div style={{ width: 6, height: '100%', background: '#222', float: 'left',
+                    clipPath: 'polygon(0 50%, 100% 30%, 100% 70%)' }} />
+    </div>
+  );
+}
+
+function Postcard({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 150, height: 100, zIndex: 3,
+                  background: '#f0e3c8', boxShadow: '4px 5px 12px rgba(0,0,0,0.55)',
+                  border: '1px solid #b4a685', padding: 6, ...style }}>
+      <div style={{ fontFamily: '"Times New Roman", serif', fontSize: 10, fontWeight: 900,
+                    color: '#7a3a2a', letterSpacing: '0.2em', borderBottom: '1px dashed #b4a685', paddingBottom: 2 }}>
+        GREETINGS FROM
+      </div>
+      <div style={{ fontFamily: FONT_HAND, fontSize: 11, color: '#3a2a18', marginTop: 4, lineHeight: 1.3 }}>
+        Boss —<br />The trail is hot. The light is golden. Bring the dog.<br />— D.
+      </div>
+      <div style={{ position: 'absolute', top: 6, right: 6, width: 28, height: 32,
+                    background: 'repeating-linear-gradient(45deg, #B23A2E 0, #B23A2E 3px, #f0e3c8 3px, #f0e3c8 6px)',
+                    border: '1px solid #7a3a2a' }} />
+    </div>
+  );
+}
+
+function InkBottle({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 50, height: 60, zIndex: 4,
+                  filter: 'drop-shadow(3px 4px 5px rgba(0,0,0,0.6))', ...style }}>
+      <div style={{ position: 'absolute', top: 0, left: 14, width: 22, height: 14, background: '#2a1a08',
+                    borderRadius: '2px 2px 0 0' }} />
+      <div style={{ position: 'absolute', top: 12, left: 4, width: 42, height: 48,
+                    background: 'linear-gradient(180deg, #1a1410 0%, #0a0608 100%)',
+                    borderRadius: '4px 4px 6px 6px',
+                    border: '1px solid #000',
+                    boxShadow: 'inset 0 6px 10px rgba(255,255,255,0.08)' }}>
+        <div style={{ position: 'absolute', bottom: 6, left: 4, fontFamily: FONT, fontSize: 6, color: '#a08a6a', letterSpacing: '0.1em' }}>
+          INK
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Matchbook({ style }: { style?: React.CSSProperties }) {
+  return (
+    <div style={{ position: 'absolute', width: 55, height: 70, zIndex: 4,
+                  background: '#7a2a20', border: '1px solid #4a1a14',
+                  boxShadow: '3px 4px 8px rgba(0,0,0,0.55)',
+                  padding: 5, ...style }}>
+      <div style={{ fontFamily: FONT, fontSize: 7, color: '#f5ede0', fontWeight: 900, letterSpacing: '0.2em', textAlign: 'center' }}>
+        THE<br />FOX &<br />ROOK
+      </div>
+      <div style={{ position: 'absolute', bottom: 4, left: 5, right: 5, height: 10,
+                    background: 'repeating-linear-gradient(90deg, #f5ede0 0, #f5ede0 2px, #7a2a20 2px, #7a2a20 4px)' }} />
+    </div>
+  );
+}
+
+// ================== styles ==================
+
+const corkboardBg: React.CSSProperties = {
+  background: `radial-gradient(ellipse at 50% 40%, #8B6A3F 0%, #5C4225 60%, #2E1F10 100%), #6B4F2A`,
+  backgroundBlendMode: 'multiply',
+};
+
+const corkSpeckle: React.CSSProperties = {
+  position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1, opacity: 0.55,
+  backgroundImage:
+    `radial-gradient(rgba(60,35,15,0.55) 1px, transparent 1.2px),
+     radial-gradient(rgba(255,220,170,0.18) 1px, transparent 1px),
+     radial-gradient(rgba(40,22,10,0.7) 0.6px, transparent 0.8px)`,
+  backgroundSize: '7px 7px, 11px 11px, 4px 4px',
+  backgroundPosition: '0 0, 3px 5px, 1px 2px',
+  mixBlendMode: 'overlay',
+};
+
+const vignette: React.CSSProperties = {
+  position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2,
+  background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%)'
+};
+
+const headerCard: React.CSSProperties = {
+  background: '#1a1410', border: '1px solid #5a3e20', padding: '8px 16px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.55)', borderRadius: 2
+};
+
+const countryBtn: React.CSSProperties = {
+  background: '#2a1a08', color: POLA, border: '2px solid #5a3e20',
+  padding: '10px 22px', fontFamily: FONT, fontWeight: 900, fontSize: 14,
+  letterSpacing: '0.2em', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
+};
+
+const nextBtn: React.CSSProperties = {
+  background: '#2a5a2a', color: POLA, border: '2px solid #1a1410',
+  padding: '10px 26px', fontFamily: FONT, fontWeight: 900, fontSize: 14,
+  letterSpacing: '0.2em', cursor: 'pointer', boxShadow: '0 6px 14px rgba(0,0,0,0.5)'
+};
+
+export default EvidenceMode;
